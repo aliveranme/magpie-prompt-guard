@@ -1,0 +1,48 @@
+{
+  "name": "magpie-prompt-guard",
+  "version": "0.1.0",
+  "description": "Filters the prompts magpie's gateway sends: keeps injection phrases out of a request, and takes the refusal-making safety boilerplate out of an agent's own system prompt",
+  "type": "module",
+  "files": ["prompt-guard.middleware.js", "page", "README.md"],
+  "keywords": ["magpie", "magpie-middleware", "magpie-page", "prompt-injection", "guardrails", "system-prompt", "llm-gateway"],
+  "license": "MIT",
+  "scripts": {
+    "test": "bun test",
+    "build": "node scripts/sync-engine.mjs"
+  },
+  "magpie": {
+    "middleware": "./prompt-guard.middleware.js",
+    "page": {
+      "title": "Prompt guard",
+      "titles": { "zh": "提示词守卫", "zh-TW": "提示詞守衛", "ja": "プロンプトガード", "de": "Prompt-Wächter" },
+      "file": "page/index.html",
+      "icon": "page/icon.svg"
+    },
+    "permissions": [],
+    "options": {
+      "enabled": true,
+      "log": "reject",
+      "injection": {
+        "packs": { "classic": true, "spoof": true, "jailbreak": true },
+        "scopes": { "user": "neutralize", "tool": "neutralize", "system": "off", "assistant": "off" },
+        "mask": "[filtered]",
+        "status": 400,
+        "message": "",
+        "rules": [
+          { "id": "ig-codename", "on": false, "name": "Project codename", "pattern": "\\bRaven\\b", "action": "reject" }
+        ]
+      },
+      "guardrails": {
+        "on": true,
+        "unit": "sentence",
+        "sections": true,
+        "packs": { "refusal": true, "policy": true, "harm": true, "meta": true, "restrictions": false },
+        "scopes": { "system": true },
+        "keep": ["api key", "password", "credential", "secret", "private key"],
+        "rules": [
+          { "id": "gr-team", "on": false, "name": "A house paragraph", "pattern": "our Acceptable Use Policy", "unit": "line" }
+        ]
+      }
+    }
+  }
+}

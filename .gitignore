@@ -1,0 +1,12 @@
+# what a magpie command leaves here while a plugin of this folder is tried
+.sandbox/
+
+# the smoke test's pictures
+page-smoke*.png
+
+node_modules/
+bun.lockb
+bun.lock
+*.tgz
+.DS_Store
+Thumbs.db

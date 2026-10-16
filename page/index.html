@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prompt guard</title>
+<link rel="stylesheet" href="style.css">
+<!-- served beside every page by magpie; the only way out of the sandbox -->
+<script src="_magpie/bridge.js"></script>
+<script src="engine.js"></script>
+<script src="view.js"></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="head">
+  <div class="who">
+    <h1 data-t="title">Prompt guard</h1>
+    <p class="lede" data-t="lede"></p>
+  </div>
+  <div class="master">
+    <span class="state" id="state"></span>
+    <span class="master-say" id="master-say"></span>
+    <button type="button" class="lib-switch" id="enabled" role="switch" aria-checked="true" aria-label="Prompt guard"><i></i></button>
+  </div>
+</header>
+
+<nav class="segs tabs" id="tabs" role="tablist">
+  <button type="button" class="opt" role="tab" data-tab="injection" data-t="tabInjection">Injection</button>
+  <button type="button" class="opt" role="tab" data-tab="guardrails" data-t="tabGuardrails">Guardrails</button>
+  <button type="button" class="opt" role="tab" data-tab="bench" data-t="tabBench">Test bench</button>
+</nav>
+
+<main id="main"></main>
+</body>
+</html>

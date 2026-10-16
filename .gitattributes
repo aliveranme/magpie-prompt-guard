@@ -1,0 +1,5 @@
+# Every text file is LF, in the repository and in a checkout, whatever
+# core.autocrlf says: the engine is one file magpie reads, the page's files
+# are served as they are written, and a test compares the generated
+# page/engine.js byte for byte with what the generator would write it.
+* text=auto eol=lf
