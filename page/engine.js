@@ -58,56 +58,93 @@ function onRequest(body, ctx) {
   if (!o || o.enabled === false) return
   if (!wanted(o, body, ctx)) return
   const protocol = ctx && ctx.protocol ? ctx.protocol : "anthropic"
+  const started = clock()
   const seen = { injection: [], guardrails: [] }
 
-  // 1. take the agent's own safety boilerplate out of the texts the
-  //    guardrails' scopes cover, before anything reads them
-  const g = guardPlan(o.guardrails)
-  let changed = false
-  if (g) {
-    walk(body, protocol, (role, get, set) => {
-      if (!g.scopes[role]) return
-      const before = get()
-      const res = pruneText(before, g)
-      if (!res.hits.length) return
-      if (res.out !== before) {
-        set(res.out)
-        changed = true
-      }
-      for (const h of res.hits) seen.guardrails.push({ ...h, role })
-    })
+  // every piece of text the request carries, once, in the order it is sent:
+  // one walk serves both passes, and the injection pass reads it backwards
+  const parts = []
+  sink = []
+  walk(body, protocol, (role, get, set) => parts.push({ role, get, set }))
+  if (!parts.length) {
+    sink = null
+    return
   }
 
-  // 2. look at the texts the injection scopes cover, and act on what was
-  //    found: reject the request, blank the phrase out, or just log it
-  const inj = injectionPlan(o.injection)
+  const limits = limitsOf(o)
+  const read = { n: 0 }
+  let changed = false
   let reject = null
+
+  // 1. the agent's own fences, in the order the parts come: the system prompt
+  //    is first in every API, and it is the one this pass is for
+  const g = guardPlan(o.guardrails)
+  if (g) {
+    for (const p of parts) {
+      if (!g.scopes[p.role]) continue
+      const before = p.get()
+      if (!before) continue
+      if (!afford(limits, read, before, started)) {
+        seen.skipped = (seen.skipped || 0) + before.length
+        continue
+      }
+      const res = pruneText(before, g)
+      if (!res.hits.length) continue
+      if (res.out !== before) {
+        p.set(res.out)
+        changed = true
+      }
+      for (const h of res.hits) seen.guardrails.push({ ...h, role: p.role })
+    }
+  }
+
+  // 2. what the injection scopes cover, newest text first: in a conversation
+  //    that has run long it is the last turns that matter, and they are the
+  //    ones that fit in what is left of the budget
+  const inj = injectionPlan(o.injection)
   if (inj) {
-    walk(body, protocol, (role, get, set) => {
-      const plan = inj.byScope[role]
-      if (!plan) return
-      const text = get()
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i]
+      const plan = inj.byScope[p.role]
+      if (!plan) continue
+      const text = p.get()
+      if (!text) continue
+      if (!afford(limits, read, text, started)) {
+        seen.skipped = (seen.skipped || 0) + text.length
+        continue
+      }
       const res = scanText(text, plan)
-      if (!res.hits.length) return
-      for (const h of res.hits) seen.injection.push({ ...h, role })
+      if (!res.hits.length) continue
+      for (const h of res.hits) seen.injection.push({ ...h, role: p.role })
       if (res.reject) {
-        if (!reject) reject = res.reject
-        return
+        reject = res.reject
+        break
       }
       if (res.out !== text) {
-        set(res.out)
+        p.set(res.out)
         changed = true
       }
-    })
+    }
   }
 
+  // the report is left even when nothing was found, if something was not
+  // read: a request that went unfiltered because the hook stopped reading it
+  // is the one thing a reader needs to be able to see
+  if (ctx && ctx.state && (seen.injection.length || seen.guardrails.length || seen.skipped)) {
+    ctx.state.promptGuard = seen
+  }
+  // a block a removal emptied is taken out of its list, as it was when the
+  // walk did this inline: what is left is not a hollow text block in a request
+  emptyBlocks()
   if (seen.injection.length || seen.guardrails.length) {
-    if (ctx && ctx.state) ctx.state.promptGuard = seen
     // a removed guardrail is the same line on every request of a session,
     // so what goes to magpie's log is the refusals by default
     const mode = o.log === "all" || o.log === "off" ? o.log : "reject"
     if (mode === "all" || (mode === "reject" && reject)) log(loud(seen, ctx))
   }
+  // what the hook cost and what it read: a long request that took too long is
+  // then a line in magpie's log rather than a mystery
+  if (o.trace === true) log(traced(protocol, parts, seen, read.n, started))
 
   if (reject) {
     const i = (o.injection && typeof o.injection === "object" ? o.injection : {})
@@ -119,6 +156,95 @@ function onRequest(body, ctx) {
     return
   }
   if (changed) return body
+}
+
+// gateOf is the rules of one unit as a single expression, asked before the
+// rules themselves are. The cost of a long text is not one pass per rule over
+// it, it is one regex call per sentence per rule: 130 KB of prose is a few
+// thousand sentences, and thirty sentence rules over each is sixty thousand
+// calls into the engine. One alternation asked once per sentence answers
+// "any of them?" and skips all thirty when the answer is no, which it is for
+// almost every sentence of a request. A rule is never left out because of
+// this: the gate only skips rules it also could not have matched.
+//
+// It is built per unit because that is where it pays: over a sentence the
+// combined expression is bounded, while over the whole text the backtracking
+// of a hundred alternatives costs more than the rules it would have saved.
+function gateOf(rules, unit) {
+  const parts = []
+  for (const r of rules) if (r.unit === unit && r.pattern) parts.push("(?:" + r.pattern + ")")
+  if (!parts.length) return null
+  return gateOf2(parts)
+}
+
+// gateOf2 is those expressions as one, or null if they cannot be one
+function gateOf2(parts) {
+  try {
+    return new RegExp(parts.join("|"), "i")
+  } catch (err) {
+    return null
+  }
+}
+
+// sink is the text blocks the walk in progress may empty, and emptyBlocks
+// takes out the ones a removal did empty. The walk collects them because the
+// passes that do the emptying run after it, not inside it.
+let sink = null
+
+function emptyBlocks() {
+  if (!sink) return
+  const blocks = sink
+  sink = null
+  for (const e of blocks) {
+    const i = e.list.indexOf(e.block)
+    if (i >= 0 && e.block.text === "") e.list.splice(i, 1)
+  }
+}
+
+// limitsOf is how much of a request one hook call may read: a conversation
+// with file contents in it runs to megabytes, and every rule over every word
+// of it is work the hook is not given time for — magpie gives a hook 250 ms
+// and then carries on as if it were not there, which would mean the request
+// was not filtered at all.
+//
+// The bound is time rather than a size, so it holds on a slow machine as
+// well as a fast one, and it is measured from inside the engine that runs the
+// hook. Reading stops before a text that would take the hook past maxMs, so
+// the worst a call can cost is maxMs plus one text; a text larger than
+// maxText is not read at all, since reading half of one and writing it back
+// would drop the other half.
+function limitsOf(o) {
+  const l = o.limits && typeof o.limits === "object" ? o.limits : {}
+  const ms = Number(l.maxMs)
+  const text = Number(l.maxText)
+  return {
+    maxMs: Number.isFinite(ms) && ms > 0 ? Math.floor(ms) : 120,
+    maxText: Number.isFinite(text) && text > 0 ? Math.floor(text) : 65536,
+  }
+}
+
+// clock is the milliseconds since the epoch, when the engine has a clock.
+// Date is a function, not an object, and a runtime without one gives 0.
+function clock() {
+  return typeof Date !== "undefined" && Date && typeof Date.now === "function" ? Date.now() : 0
+}
+
+// afford is whether a text may be read now, and takes what reading it costs
+function afford(limits, read, text, started) {
+  if (text.length > limits.maxText) return false
+  if (clock() - started > limits.maxMs) return false
+  read.n += text.length
+  return true
+}
+
+// traced is the one line the trace option writes: what the hook cost, how
+// much of the request it read, and what it found
+function traced(protocol, parts, seen, read, started) {
+  const hits = seen.injection.length + seen.guardrails.length
+  const took = clock() - started
+  return "prompt-guard [" + protocol + "]: read " + read + " chars in " + took +
+    "ms, " + hits + " hit" + (hits === 1 ? "" : "s") +
+    (seen.skipped ? ", " + seen.skipped + " chars past the budget left unread" : "")
 }
 
 // loud is the one line a match writes to magpie's log: which rule fired,
@@ -611,14 +737,25 @@ function guardPlan(g) {
     if (spec.scopes && typeof spec.scopes === "object") {
       for (const k of Object.keys(scopes)) if (k in spec.scopes) scopes[k] = spec.scopes[k] !== false && spec.scopes[k] !== "off"
     }
-    const keeps = compileAll(Array.isArray(spec.keep) ? spec.keep : DEFAULT_KEEP)
+    const keepList = Array.isArray(spec.keep) ? spec.keep : DEFAULT_KEEP
+    const keeps = compileAll(keepList)
     const rules = []
     for (const r of collect(GUARDRAIL_PACKS, spec.packs, spec.rules, PACKS_OFF)) {
       const re = compile(r.pattern, r.flags)
-      if (re) rules.push({ id: r.id, name: r.name || r.id, pack: r.pack, unit: r.unit || unit, re })
+      if (re) rules.push({ id: r.id, name: r.name || r.id, pack: r.pack, unit: r.unit || unit, re, pattern: r.pattern })
     }
     if (!rules.length) return null
-    return { unit, scopes, keeps, rules, sections: spec.sections !== false }
+    return {
+      unit,
+      scopes,
+      keeps,
+      rules,
+      sections: spec.sections !== false,
+      sentenceGate: gateOf(rules, "sentence"),
+      lineGate: gateOf(rules, "line"),
+      blockGate: gateOf(rules, "block"),
+      keepGate: keepList.length > 1 ? gateOf2(keepList.map((p) => "(" + p + ")")) : null,
+    }
   })
 }
 
@@ -762,6 +899,10 @@ function scanText(text, plan) {
     const a = rule.action
     if (a === "off") continue
     if (a === "neutralize") {
+      // asked before it is run: a match builds a whole new string, and a
+      // rule that does not match must not cost one
+      rule.re.lastIndex = 0
+      if (!rule.re.test(out)) continue
       rule.re.lastIndex = 0
       out = out.replace(rule.re, (m) => {
         if (hits.length < 200) hits.push(hitOf(rule, m))
@@ -809,7 +950,7 @@ function find(re, text) {
 function pruneText(text, g) {
   if (typeof text !== "string" || !text.trim()) return { out: text, hits: [] }
   const hits = []
-  const paragraphs = splitKeep(text, /\n[ \t]*\n/)
+  const paragraphs = splitKeep(text, SEC_PARA)
   let out = ""
   let skipping = false
   for (const p of paragraphs) {
@@ -838,8 +979,9 @@ function pruneText(text, g) {
 // blockHit: a block-unit rule matching the paragraph's heading
 function blockHit(paragraph, g, hits) {
   let found = false
-  for (const line of splitKeep(paragraph, /\n/)) {
+  for (const line of splitKeep(paragraph, SEC_LINE)) {
     if (!line.body.trim()) continue
+    if (g.blockGate && !g.blockGate.test(line.body)) continue
     if (protectedUnit(line.body, g)) continue
     for (const rule of g.rules) {
       if (rule.unit !== "block") continue
@@ -858,7 +1000,7 @@ function blockHit(paragraph, g, hits) {
 // "our house style" does not also hold on to the sentence beside it.
 function pruneParagraph(paragraph, g, hits) {
   let out = ""
-  for (const line of splitKeep(paragraph, /\n/)) {
+  for (const line of splitKeep(paragraph, SEC_LINE)) {
     if (!line.body.trim()) {
       out += line.body + line.sep
       continue
@@ -871,6 +1013,7 @@ function pruneParagraph(paragraph, g, hits) {
 
 // lineHit: a line-unit rule matching the whole line takes the line
 function lineHit(line, g, hits) {
+  if (g.lineGate && !g.lineGate.test(line)) return false
   let found = false
   for (const rule of g.rules) {
     if (rule.unit !== "line") continue
@@ -898,7 +1041,9 @@ function pruneSentences(line, g, hits) {
   return out.trim() ? out : ""
 }
 
+// sentenceHit: a sentence-unit rule takes the sentence it matched
 function sentenceHit(sentence, g, hits) {
+  if (g.sentenceGate && !g.sentenceGate.test(sentence)) return false
   for (const rule of g.rules) {
     if (rule.unit !== "sentence") continue
     const m = match1(rule.re, sentence)
@@ -913,6 +1058,7 @@ function sentenceHit(sentence, g, hits) {
 // rule says — the owner's way of holding on to a guardrail they want
 function protectedUnit(unit, g) {
   if (!g.keeps.length) return false
+  if (g.keepGate && !g.keepGate.test(unit)) return false
   for (const re of g.keeps) if (match1(re, unit) !== null) return true
   return false
 }
@@ -939,11 +1085,19 @@ function tidy(s) {
     .replace(/\s+$/, "")
 }
 
+// sec is the separator a text is split on. It is compiled once and reused —
+// splitting a system prompt is a thousand calls, and a `new RegExp` each time
+// is a thousand compiles of the engine, which was most of the cost of the
+// whole guardrails pass.
+const SEC_PARA = /\n[ \t]*\n/g
+const SEC_LINE = /\n/g
+
 // splitKeep splits a text at every separator and keeps it, so a unit can
 // be dropped with what follows it: [{ body, sep }]
 function splitKeep(text, sep) {
   const out = []
-  const re = new RegExp(sep.source, "g")
+  const re = sep
+  re.lastIndex = 0
   let start = 0
   let m
   while ((m = re.exec(text)) !== null) {
@@ -961,51 +1115,37 @@ function splitKeep(text, sep) {
 // with no space after it, as Chinese is written.
 const ABBREV = ["e.g", "i.e", "etc", "vs", "cf", "al", "resp", "fig", "sec", "no", "approx", "ph.d", "mr", "mrs", "ms", "dr", "st", "jr", "sr", "inc", "ltd", "co"]
 
+// ENDS finds a sentence's terminating punctuation and whatever closes after
+// it, so the splitter walks a text's sentence ends rather than its
+// characters: 27 KB of prose is 27,000 characters to step through in an
+// interpreter, against a few hundred places a sentence can end.
+const ENDS = /[.!?\u3002\uff01\uff1f\uff1b]["')\]}\u201d\u2019!?]*/g
+
 function splitSentences(text) {
   const out = []
   let start = 0
-  let i = 0
-  while (i < text.length) {
-    const c = text[i]
-    if (!endsSentence(c)) {
-      i++
-      continue
-    }
-    let j = i + 1
-    while (j < text.length && '."\')]}\u201d\u2019!?'.indexOf(text[j]) >= 0) j++
+  ENDS.lastIndex = 0
+  let m
+  while ((m = ENDS.exec(text)) !== null) {
+    const c = m[0][0]
+    const end = m.index + m[0].length
     // Chinese is written with no space after its full stop, so only the
     // Latin terminators need one to end a sentence here
-    if (!cjkStop(c) && j < text.length && text[j] !== " " && text[j] !== "\t") {
-      i++
-      continue
-    }
+    if (!cjkStop(c) && end < text.length && text[end] !== " " && text[end] !== "\t") continue
     if (c === ".") {
-      const before = text[i - 1]
-      const after = text[j]
-      if (before && after && isDigit(before) && isDigit(after)) {
-        i++
-        continue
-      }
-      if (isAbbrev(text, i)) {
-        i++
-        continue
-      }
+      const before = text[m.index - 1]
+      const after = text[end]
+      if (before && after && isDigit(before) && isDigit(after)) continue
+      if (isAbbrev(text, m.index)) continue
     }
-    let k = j
+    let k = end
     while (k < text.length && (text[k] === " " || text[k] === "\t")) k++
-    out.push({ body: text.slice(start, j), sep: text.slice(j, k) })
+    out.push({ body: text.slice(start, end), sep: text.slice(end, k) })
     start = k
-    i = k
+    ENDS.lastIndex = k
   }
   if (start < text.length) out.push({ body: text.slice(start), sep: "" })
   return out
-}
-
-// A full stop, a question mark or an exclamation ends a sentence; a
-// semicolon does not. Taking a semicolon for one would cut a policy line in
-// half and leave the second clause standing on its own in what is sent.
-function endsSentence(c) {
-  return c === "." || c === "!" || c === "?" || c === "\u3002" || c === "\uff01" || c === "\uff1f" || c === "\uff1b"
 }
 
 // a Chinese full stop, exclamation, question mark or semicolon
@@ -1129,23 +1269,19 @@ function field(role, holder, key, visit) {
 
 // blocks visits the text of each block: a `text` (Anthropic, Gemini), an
 // `input_text` or `output_text` (Responses) part, and nothing else — tool
-// use, tool results, images and a Gemini thought part are left alone.
-// A block a removal emptied is taken out of the list, so a request never
-// carries a hollow text block where the guardrail was.
+// use, tool results, images and a Gemini thought part are left alone. A
+// block is noted so that one a removal empties can be taken out afterwards.
 function blocks(role, list, visit) {
-  const empty = []
-  for (let i = 0; i < list.length; i++) {
-    const p = list[i]
+  for (const p of list) {
     if (!p || typeof p !== "object") continue
     if (p.thought) continue
     if (typeof p.text !== "string") continue
     const t = p.type
     if (t === "text" || t === "input_text" || t === "output_text" || t === undefined) {
       visit(role, () => p.text, (s) => { p.text = s })
-      if (p.text === "") empty.push(i)
+      if (sink) sink.push({ list, block: p })
     }
   }
-  for (let i = empty.length - 1; i >= 0; i--) list.splice(empty[i], 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -1232,6 +1368,7 @@ function previewRequest(body, protocol, options_) {
   const seen = { injection: [], guardrails: [] }
   const g = guardPlan(o.guardrails)
   if (g) {
+    sink = []
     walk(copy, protocol, (role, get, set) => {
       if (!g.scopes[role]) return
       const before = get()
@@ -1240,6 +1377,7 @@ function previewRequest(body, protocol, options_) {
       if (res.out !== before) set(res.out)
       for (const h of res.hits) seen.guardrails.push({ ...h, role })
     })
+    emptyBlocks()
   }
   const inj = injectionPlan(o.injection)
   if (inj) {

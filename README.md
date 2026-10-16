@@ -66,8 +66,13 @@ later arrives with an update rather than being frozen into your file.
 {
   "enabled": true,
   "log": "reject",              // off | reject | all — what reaches magpie's log
+  "trace": false,               // one line per request: what it read and cost
   "agents": [],                 // when named, only these agents
   "models": [],                 // when named, only models with one of these prefixes
+  "limits": {
+    "maxMs": 120,               // how long the hook may spend reading a request
+    "maxText": 65536            // the largest single text it will read at all
+  },
 
   "injection": {
     "packs": { "classic": true, "spoof": true, "jailbreak": true },
@@ -320,6 +325,46 @@ with the caution standing. The generic `work-restrictions` pack alone, with no
 preset applied, gets the same result to the sentence: the fences go, the
 caution stays.
 
+## What it costs, and why it stops reading
+
+magpie gives a hook 250 ms and then carries on **as if it were not there**. A
+hook that runs past that is not a slow request: it is a request with no
+filtering at all, silently. That is what the budget is for.
+
+A conversation with file contents in it runs to megabytes, and the hook is an
+interpreter (moejs, not V8), so one rule over every word of it is work there
+is no time for. The hook reads a bounded part of a request instead:
+
+- **it stops taking new texts once `limits.maxMs` (120 ms by default) is
+  spent**, measured inside the engine that runs it, so the bound holds on a
+  slow machine as well as a fast one;
+- **the system prompt is read first**, since that is what the guardrails pass
+  is for, and then the turns are read **newest first**, since in a long
+  conversation it is the last turns that matter;
+- **a single text larger than `limits.maxText` (64 KB) is not read at all** —
+  reading half of one and writing it back would drop the other half;
+- what was not read is reported on `ctx.state.promptGuard.skipped`, and in
+  the log with `trace`.
+
+Measured through a real magpie, with every pack on and every scope read, on a
+117 KB system prompt and conversations from 77 KB to 1.6 MB: the hook costs
+**about 100–130 ms at every size**, where before the budget it crossed 250 ms
+at around 400 KB and magpie began dropping it — the failure that a reader sees
+as a failure count on the Plugins page and experiences as filtering that
+quietly stops happening.
+
+```sh
+magpie plugin options prompt-guard '{"trace": true}'
+# then: prompt-guard [anthropic]: read 136173 chars in 122ms, 19 hits, 113998 chars past the budget left unread
+```
+
+Raise `limits.maxMs` if your machine is fast and you want a longer
+conversation read as a whole — the trace line is how you see what it buys.
+
+`node scripts/load-check.mjs` runs this check against a sandbox magpie of its
+own: one of each request shape, then the same request from 50 KB to 1.6 MB,
+reading magpie's own failure count after each one.
+
 ## What it is not
 
 - **Not a safety classifier.** Matching is literal and by expression. It does
@@ -373,11 +418,12 @@ prompt-guard [claude]: injection ignore previous instructions in user ("ignore a
 ## Working on it
 
 ```sh
-bun test                          # 120 cases and the editor's own, on both engines
+bun test                          # 123 cases and the editor's own, on both engines
 bun run build                     # regenerate page/engine.js and page/samples.js
 bun run extract                   # capture the agents' prompts into reference/
 bun run check                     # hold the packs to what was captured
 npm run smoke                     # drive the page in a real browser
+npm run load                      # sizes and shapes through a real magpie
 ```
 
 `page/engine.js` is **generated** — it is `prompt-guard.middleware.js` with
@@ -403,6 +449,7 @@ scripts/sync-engine.mjs      writes page/engine.js
 scripts/extract-guardrails.mjs  captures a prompt from the agent itself
 scripts/make-samples.mjs     writes page/samples.js from the capture
 scripts/page-smoke.mjs       a developer's check in a real browser
+scripts/load-check.mjs       sizes and shapes through a real magpie
 reference/                   the captures — not committed
 ```
 
@@ -470,6 +517,13 @@ magpie plugin add ./magpie-prompt-guard
   页面里会标红提示。
 - **失败即放行（fail open）**：钩子抛异常、超 250 ms 或返回非对象时，请求原样发出。
   本插件永远不会成为请求发不出去的原因。
+- **但“失败即放行”意味着那个请求完全没过过滤**，所以插件自己给读取量设了硬预算：
+  `limits.maxMs`（默认 120ms，在引擎内部计时，慢机器同样有效）与 `limits.maxText`
+  （单个文本超过 64KB 就整段不读）。系统提示词优先读，其次是**从最新一轮往前**读。
+  没读到的部分记在 `ctx.state.promptGuard.skipped` 上。理由与实测数据见
+  [What it costs](#what-it-costs-and-why-it-stops-reading)。
+- **用 `trace` 看真实开销**：`magpie plugin options prompt-guard '{"trace":true}'`，
+  magpie 日志里会多出一行每请求的「读了多少字符 / 花了多少毫秒 / 命中几条」。
 - **它不是安全分类器**：是字面与正则匹配，近义词、改写、拼写变体、被格式拆开的词都能
   绕过。它的用途是把点名的文本和点名的句式挡在模型之外，而不是单独拦住处心积虑的提示词。
 - **剔除围栏会改变模型行为**：这就是它的目的，但也可能删掉你想保留的指令。
@@ -501,11 +555,12 @@ node scripts/extract-guardrails.mjs --check  # 用抓取结果校验规则包
 ### 测试与开发
 
 ```sh
-bun test                    # 120 条用例 + 编辑器逻辑，双引擎各跑一遍
+bun test                    # 123 条用例 + 编辑器逻辑，双引擎各跑一遍
 bun run build               # 重新生成 page/engine.js 与 page/samples.js
 bun run extract             # 抓取 agent 的真实系统提示词到 reference/
 bun run check               # 用抓取结果校验规则包
 npm run smoke               # 真实浏览器里驱动页面
+npm run load                # 真实 magpie 上跑各种体积与形状，读它的失败计数
 ```
 
 `page/engine.js` 是**生成文件**：把中间件的 `export` 去掉、入口挂到

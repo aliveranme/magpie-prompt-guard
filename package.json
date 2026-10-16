@@ -11,7 +11,8 @@
     "build": "node scripts/sync-engine.mjs && node scripts/make-samples.mjs",
     "extract": "node scripts/extract-guardrails.mjs",
     "check": "node scripts/extract-guardrails.mjs --check",
-    "smoke": "node scripts/page-smoke.mjs"
+    "smoke": "node scripts/page-smoke.mjs",
+    "load": "node scripts/load-check.mjs"
   },
   "magpie": {
     "middleware": "./prompt-guard.middleware.js",
