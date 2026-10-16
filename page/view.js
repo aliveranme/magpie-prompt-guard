@@ -27,6 +27,19 @@
       presetHits: "clauses", presetChars: "characters",
       presetGone: "Limits taken out", presetKept: "Caution kept",
       presetGoneList: "What must not reach the model", presetKeptList: "What must still be in it",
+      budget: "Reading budget",
+      budgetLede: "magpie gives a hook 250 ms and then carries on as if it were not there — a request it stopped reading is a request with no filtering at all. So the hook reads a bounded part of one: the system prompt first, then the turns newest first.",
+      limitMs: "Time budget", limitMsHint: "milliseconds of reading per request (magpie allows 250)",
+      limitText: "Largest single text", limitTextHint: "characters; a bigger one is not read at all",
+      budgetTrace: "Log what each request cost",
+      budgetTraceHint: "one line per request in magpie's log — turn the switch on, then",
+      budgetWhy: "These are the settings. The numbers a reader wants — what was read, how long it took, what went unread — are in magpie's log, which is what the switch above is for.",
+      benchStats: "Size", benchWithin: "within the single-text cap", benchOver: "over the single-text cap: the gateway would not read this at all",
+      benchEstimate: "about {ms} ms to read, at the {rate} ms/KB measured in magpie's own engine",
+      benchMode: "What to try", benchModeText: "One text", benchModeRequest: "A whole request",
+      benchProtocol: "Protocol", benchRequestHint: "a request body, as the agent sends it",
+      benchRead: "read", benchSkipped: "left unread", benchBadJson: "that is not a JSON object",
+      benchWould: "the request as it would be sent",
       presetMissed: "never fired on the capture:", presetExcerpt: "the excerpt it was extracted from", presetLeft: "what would be sent",
       presetCaveat: "The share is of this excerpt, which is the guardrail-bearing part of the prompt and not all of it; on the whole prompt it is a few percent. A preset only sets the guardrails' packs, unit and scopes — your keep list and your own rules are left as they are.",
       injLede: "What each kind of turn is read for. What a rule matches is replaced by the mask, written to the log, or turned away with an error — before the request is routed.",
@@ -68,6 +81,19 @@
       presetReport: "将被剔除", presetOfExcerpt: "占本片段", presetNothing: "无——没有任何规则命中",
       presetGone: "已剔除的限制", presetKept: "已保留的谨慎条款",
       presetGoneList: "不允许送到模型的内容", presetKeptList: "必须原样保留的内容",
+      budget: "读取预算",
+      budgetLede: "magpie 给钩子 250ms，超时就把钩子当作不存在 —— 那意味着这个请求完全没过过滤。所以钩子只读请求的一部分：系统提示词优先，其余从最新一轮往前读。",
+      limitMs: "时间预算", limitMsHint: "每个请求最多读多少毫秒（magpie 只给 250）",
+      limitText: "单个文本上限", limitTextHint: "字符；更大的文本整段不读",
+      budgetTrace: "在日志里记录每个请求的开销",
+      budgetTraceHint: "每个请求一行，写进 magpie 日志 —— 打开开关后运行",
+      budgetWhy: "这里是设置。真正想要的数字 —— 读了多少、花多久、跳过多少 —— 在 magpie 日志里，上面那个开关就是为它准备的。",
+      benchStats: "体积", benchWithin: "在单文本上限内", benchOver: "超过单文本上限：网关会整段跳过，完全不看",
+      benchEstimate: "预计读取约 {ms} ms（按 magpie 引擎实测 {rate} ms/KB）",
+      benchMode: "试什么", benchModeText: "单条文本", benchModeRequest: "整个请求",
+      benchProtocol: "协议", benchRequestHint: "请求体，就是 agent 发出去的那个",
+      benchRead: "读取", benchSkipped: "跳过未读", benchBadJson: "不是合法的 JSON 对象",
+      benchWould: "实际会发出的请求",
       presetHits: "处命中", presetChars: "字符",
       presetMissed: "在真实抓取中未命中：", presetExcerpt: "提取所用的片段", presetLeft: "处理后实际发出的内容",
       presetCaveat: "这里的比例是相对本片段而言的——片段只截取了提示词中带围栏的那部分，对完整提示词只有几个百分点。应用预设只会写入围栏的规则包、单元和范围，你的 keep 白名单与自建规则不会被改动。",
@@ -188,6 +214,71 @@
 
   function enabled(state) {
     return !(state && state.enabled === false)
+  }
+
+  // ---------------------------------------------------------------------
+  // what the hook is allowed to read, and what that costs
+  // ---------------------------------------------------------------------
+
+  // MOEJS_MS_PER_KB is what reading costs in the engine that runs the hook,
+  // measured on a real gateway with every pack on: about 0.93 ms for a KB of
+  // text. The page uses it to say roughly what a text would cost. The exact
+  // number per request is what the trace option puts in magpie's log — a page
+  // is a frame sandboxed away from the gateway, and nothing it can read
+  // carries the hook's own counters.
+  const MOEJS_MS_PER_KB = 0.93
+
+  function limits(E, state) {
+    return E.limitsOf(state && typeof state === "object" ? state : {})
+  }
+
+  function traceOn(state) {
+    return !!(state && state.trace === true)
+  }
+
+  function setTrace(state, on) {
+    if (on) state.trace = true
+    else delete state.trace
+    return state
+  }
+
+  function setLimit(state, key, value, fallback) {
+    if (!state.limits || typeof state.limits !== "object") state.limits = {}
+    put(state.limits, key, value, fallback)
+    if (!Object.keys(state.limits).length) delete state.limits
+    return state
+  }
+
+  // benchSize is a text against the cap: how big it is, whether the gateway
+  // would read it at all, and roughly what reading it costs
+  function benchSize(E, state, text) {
+    const l = limits(E, state)
+    const chars = typeof text === "string" ? text.length : 0
+    return {
+      chars,
+      over: chars > l.maxText,
+      maxText: l.maxText,
+      // never "0 ms": the per-KB rate is the reading, and a call has
+      // overhead besides, so a tiny text is still about a millisecond
+      ms: Math.max(1, Math.round((chars / 1024) * MOEJS_MS_PER_KB)),
+      rate: MOEJS_MS_PER_KB,
+    }
+  }
+
+  // benchRequest works a whole request the way the hook does, budget and all:
+  // what it read, what it left, and the body that would be sent. The half of
+  // the budget that needs a clock cannot be worked out here — that is the
+  // trace option's job — but a text over maxText can be, and is.
+  function benchRequest(E, state, json, protocol) {
+    let body
+    try {
+      body = JSON.parse(json)
+    } catch (err) {
+      return { ok: false, error: String((err && err.message) || err) }
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, error: "not an object" }
+    const r = E.previewRequest(body, protocol, state && typeof state === "object" ? state : {})
+    return { ok: true, body: r.body, hits: r.hits, read: r.read, skipped: r.skipped, limits: r.limits }
   }
 
   // keepList is the expressions that protect a clause: the owner's when they
@@ -446,6 +537,7 @@
     TEXT, SCOPE_ORDER, ACTION_ORDER, UNIT_ORDER, BENCH_ROLES,
     text, clone, compiles,
     rules, packs, packDefault, scopeActions, guardOn, guardUnit, guardSections, injectionSpec, enabled, keepList, keepsText,
+    limits, traceOn, setTrace, setLimit, benchSize, benchRequest, MOEJS_MS_PER_KB,
     setScope, setPack, setRule, dropRule, revertRule, addRule, setEnabled,
     setInjection, setGuard, setGuardScope, setKeeps,
     presets, presetOn, presetRun, presetApply, presetSummary,

@@ -1,0 +1,17 @@
+name: test
+
+# The suite needs nothing but bun: the cases run the middleware and the page's
+# copy of it side by side, and fail when the two disagree or when the copy is
+# not what the generator would write. `npm run load` and `npm run smoke` need a
+# magpie and a browser, so they are not here.
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun test

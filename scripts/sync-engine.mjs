@@ -26,17 +26,27 @@ const HEADER = `// The page's copy of prompt-guard's engine.
 (() => {
 `
 
-const FOOTER = `
-globalThis.PromptGuard = { onRequest, previewText, previewRequest, rulesFor, INJECTION_PACKS, GUARDRAIL_PACKS, PACKS_OFF, DEFAULT_KEEP }
-})()
-`
+const FOOTER_HEAD = "\nglobalThis.PromptGuard = { "
+
+// exported is the names the middleware exports, read from its own source, so
+// that a new entry point cannot be left out of the page's copy by hand — the
+// page asking for one the copy does not have is a page that stops working
+function exported(src) {
+  const names = []
+  const re = /^export\s+(?:async\s+)?(?:function|const|let|var)\s+([A-Za-z_$][\w$]*)/gm
+  let m
+  while ((m = re.exec(src)) !== null) if (names.indexOf(m[1]) < 0) names.push(m[1])
+  return names
+}
 
 // rendered is what page/engine.js holds: the middleware with its three
 // exports turned into plain functions in one scope, and the rule book, which
 // the page's editor draws from, beside them
 export function rendered() {
   const src = readFileSync(join(root, "prompt-guard.middleware.js"), "utf8")
-  return HEADER + src.replace(/^export\s+/gm, "").trimEnd() + FOOTER
+  const names = exported(src)
+  const footer = FOOTER_HEAD + names.join(", ") + " }\n})()\n"
+  return HEADER + src.replace(/^export\s+/gm, "").trimEnd() + footer
 }
 
 export function enginePath() {

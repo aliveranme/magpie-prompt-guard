@@ -207,14 +207,17 @@ function emptyBlocks() {
 // and then carries on as if it were not there, which would mean the request
 // was not filtered at all.
 //
-// The bound is time rather than a size, so it holds on a slow machine as
-// well as a fast one, and it is measured from inside the engine that runs the
+// The bound is time rather than a size, so it holds on a slow machine as well
+// as a fast one, and it is measured from inside the engine that runs the
 // hook. Reading stops before a text that would take the hook past maxMs, so
 // the worst a call can cost is maxMs plus one text; a text larger than
 // maxText is not read at all, since reading half of one and writing it back
 // would drop the other half.
+//
+// The page shows these two numbers and writes them, and works out the part of
+// the budget that needs no clock; the rest is what the trace option is for.
 function limitsOf(o) {
-  const l = o.limits && typeof o.limits === "object" ? o.limits : {}
+  const l = o && o.limits && typeof o.limits === "object" ? o.limits : {}
   const ms = Number(l.maxMs)
   const text = Number(l.maxText)
   return {
@@ -1366,32 +1369,53 @@ function previewRequest(body, protocol, options_) {
   const o = options_ && typeof options_ === "object" ? options_ : {}
   const copy = JSON.parse(JSON.stringify(body === undefined || body === null ? {} : body))
   const seen = { injection: [], guardrails: [] }
+  const parts = []
+  sink = []
+  walk(copy, protocol, (role, get, set) => parts.push({ role, get, set }))
+
+  // the same two passes the hook runs, so that what the page shows a reader
+  // is what the gateway would do — with the one part of the budget that can
+  // be worked out without a clock: a text over maxText is not read
+  const limits = limitsOf(o)
+  const read = { n: 0 }
   const g = guardPlan(o.guardrails)
   if (g) {
-    sink = []
-    walk(copy, protocol, (role, get, set) => {
-      if (!g.scopes[role]) return
-      const before = get()
+    for (const p of parts) {
+      if (!g.scopes[p.role]) continue
+      const before = p.get()
+      if (!before) continue
+      if (before.length > limits.maxText) {
+        seen.skipped = (seen.skipped || 0) + before.length
+        continue
+      }
+      read.n += before.length
       const res = pruneText(before, g)
-      if (!res.hits.length) return
-      if (res.out !== before) set(res.out)
-      for (const h of res.hits) seen.guardrails.push({ ...h, role })
-    })
-    emptyBlocks()
+      if (!res.hits.length) continue
+      if (res.out !== before) p.set(res.out)
+      for (const h of res.hits) seen.guardrails.push({ ...h, role: p.role })
+    }
   }
   const inj = injectionPlan(o.injection)
   if (inj) {
-    walk(copy, protocol, (role, get, set) => {
-      const plan = inj.byScope[role]
-      if (!plan) return
-      const text = get()
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const p = parts[i]
+      const plan = inj.byScope[p.role]
+      if (!plan) continue
+      const text = p.get()
+      if (!text) continue
+      if (text.length > limits.maxText) {
+        seen.skipped = (seen.skipped || 0) + text.length
+        continue
+      }
+      read.n += text.length
       const res = scanText(text, plan)
-      if (!res.hits.length) return
-      for (const h of res.hits) seen.injection.push({ ...h, role })
-      if (res.out !== text) set(res.out)
-    })
+      if (!res.hits.length) continue
+      for (const h of res.hits) seen.injection.push({ ...h, role: p.role })
+      if (res.out !== text) p.set(res.out)
+    }
   }
-  return { body: copy, hits: seen }
+  emptyBlocks()
+  return { body: copy, hits: seen, limits, read: read.n, skipped: seen.skipped || 0 }
 }
-globalThis.PromptGuard = { onRequest, previewText, previewRequest, rulesFor, INJECTION_PACKS, GUARDRAIL_PACKS, PACKS_OFF, DEFAULT_KEEP }
+globalThis.PromptGuard = { onRequest, limitsOf, INJECTION_PACKS, GUARDRAIL_PACKS, PACKS_OFF, DEFAULT_KEEP, rulesFor, previewText, previewRequest }
 })()

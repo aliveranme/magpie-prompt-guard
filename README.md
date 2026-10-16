@@ -361,6 +361,23 @@ magpie plugin options prompt-guard '{"trace": true}'
 Raise `limits.maxMs` if your machine is fast and you want a longer
 conversation read as a whole — the trace line is how you see what it buys.
 
+**Plugins → Prompt guard → Guardrails → Reading budget** has the two numbers
+and the switch, and the test bench says what a text would cost before you send
+it:
+
+- **One text** mode: the size of what you pasted, whether the gateway would
+  read it at all, and roughly what reading it costs.
+- **A whole request** mode: paste a request body (and pick its protocol) and
+  the page runs the same two passes the hook runs, with the same budget, and
+  says **what it would read and what it would leave** — the one part of a
+  request nothing else can show you before it is sent.
+
+What a page cannot do is read the gateway's own counters: a plugin page is a
+frame sandboxed to scripts, with no origin of its own and no way in. That is
+why the numbers above are what was *measured on this machine* and written
+down, and why the switch exists — magpie's log is where the real per-request
+numbers are.
+
 `node scripts/load-check.mjs` runs this check against a sandbox magpie of its
 own: one of each request shape, then the same request from 50 KB to 1.6 MB,
 reading magpie's own failure count after each one.
@@ -418,7 +435,7 @@ prompt-guard [claude]: injection ignore previous instructions in user ("ignore a
 ## Working on it
 
 ```sh
-bun test                          # 123 cases and the editor's own, on both engines
+bun test                          # 125 cases and the editor's own, on both engines
 bun run build                     # regenerate page/engine.js and page/samples.js
 bun run extract                   # capture the agents' prompts into reference/
 bun run check                     # hold the packs to what was captured
@@ -524,6 +541,11 @@ magpie plugin add ./magpie-prompt-guard
   [What it costs](#what-it-costs-and-why-it-stops-reading)。
 - **用 `trace` 看真实开销**：`magpie plugin options prompt-guard '{"trace":true}'`，
   magpie 日志里会多出一行每请求的「读了多少字符 / 花了多少毫秒 / 命中几条」。
+  页面 **Guardrails → 读取预算** 里有这两个数字和这个开关（可直接改、直接存）；
+  试验台的「整个请求」模式会贴一份请求体进去，用**同一套预算**跑一遍，告诉你
+  **会读多少、会跳过多少** —— 这是请求发出去之前唯一能看到这件事的地方。
+  需要说明的是：插件页是沙箱 iframe，**读不到网关自己的计数**，所以页面上那个
+  「预计耗时」是按真机实测的 ~0.93 ms/KB 推算的，真实数字只在 magpie 日志里。
 - **它不是安全分类器**：是字面与正则匹配，近义词、改写、拼写变体、被格式拆开的词都能
   绕过。它的用途是把点名的文本和点名的句式挡在模型之外，而不是单独拦住处心积虑的提示词。
 - **剔除围栏会改变模型行为**：这就是它的目的，但也可能删掉你想保留的指令。
@@ -555,7 +577,7 @@ node scripts/extract-guardrails.mjs --check  # 用抓取结果校验规则包
 ### 测试与开发
 
 ```sh
-bun test                    # 123 条用例 + 编辑器逻辑，双引擎各跑一遍
+bun test                    # 125 条用例 + 编辑器逻辑，双引擎各跑一遍
 bun run build               # 重新生成 page/engine.js 与 page/samples.js
 bun run extract             # 抓取 agent 的真实系统提示词到 reference/
 bun run check               # 用抓取结果校验规则包

@@ -226,6 +226,14 @@ textarea.field.area { display: block; }
 .pre-detail .hits { margin-bottom: 2px; }
 .pre-foot { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
 
+/* ── the reading budget, and what a text costs ── */
+.bench-stats { margin-top: 12px; }
+.bench-stats:empty { margin-top: 0; }
+.stat { margin: 0; font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--fg-2); }
+.stat b { font-weight: 600; color: var(--fg); }
+.stat.bad b, .stat.bad span { color: var(--red); }
+.bench-stats .hint { margin: 3px 0 0; }
+
 /* ── the bench ── */
 .bench-in { margin-top: 4px; }
 .bench-out { margin-top: 14px; }

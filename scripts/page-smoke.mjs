@@ -230,7 +230,7 @@ try {
   await pg.keyboard.press("Escape")
 
   await pg.locator('#tabs .opt[data-tab="bench"]').click()
-  await pg.locator("#main .segs .opt").nth(1).click()
+  await pg.locator('#main [data-seg="role"] .opt').nth(1).click()
   // not the phrase whose rule this run turned off above
   await pg.fill("#bench-text", "developer mode on")
   await pg.waitForTimeout(300)
@@ -238,6 +238,36 @@ try {
   check((await pg.textContent("#bench-out .hit-tag")).includes("拒绝请求"), "and the hit says why")
 
   check(errors.length === 0, `nothing threw${errors.length ? ": " + errors.join(" | ") : ""}`)
+
+  // the reading budget, and what a text costs
+  await pg.locator('#tabs .opt[data-tab="guardrails"]').click()
+  await pg.waitForSelector("#main .rule", { timeout: 3000 })
+  const budget = await pg.locator("#main .sec-t").allTextContents()
+  check(budget.includes("读取预算"), "the reading budget is on the guardrails panel")
+  const limits = await pg.locator("#main input.field.num").evaluateAll((es) => es.map((e) => e.value))
+  check(limits[0] === "120" && limits[1] === "65536", `the budget shows its defaults (${limits.join(", ")})`)
+  await pg.locator("#main input.field.num").first().fill("200")
+  await pg.locator("#main input.field.num").first().press("Enter")
+  await pg.waitForTimeout(1400)
+  writes = await pg.evaluate(() => window.__writes)
+  check(writes[writes.length - 1].limits.maxMs === 200, "raising the time budget writes it")
+  // the trace switch, which is how the real numbers are read
+  await pg.locator('#main [data-toggle="trace"]').click()
+  await pg.waitForTimeout(1400)
+  writes = await pg.evaluate(() => window.__writes)
+  check(writes[writes.length - 1].trace === true, "the trace switch writes it")
+
+  // and what a text costs, in the bench
+  await pg.locator('#tabs .opt[data-tab="bench"]').click()
+  await pg.waitForSelector("#bench-stats .stat", { timeout: 3000 })
+  const stat = await pg.locator("#bench-stats .stat").textContent()
+  check(/\d/.test(stat), `the bench says how big the text is (${stat.slice(0, 40)}…)`)
+  await pg.locator('#main [data-seg="mode"] .opt').nth(1).click()
+  await pg.waitForSelector("#main [data-seg=\"protocol\"]", { timeout: 3000 })
+  await pg.waitForTimeout(300)
+  const read = await pg.locator("#bench-stats .stat").textContent()
+  check(/\d+ \/ \d+/.test(read), `a whole request says what it would read (${read.replace(/\s+/g, " ").slice(0, 50)}…)`)
+  check((await pg.locator("#bench-out .out").textContent()).includes("\"messages\""), "and shows the request as it would be sent")
 
   // the shape of it, since a picture is not checkable here: nothing spills
   // sideways, and each control sits where magpie's own would
