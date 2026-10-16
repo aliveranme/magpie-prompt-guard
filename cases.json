@@ -321,6 +321,29 @@
     "request": { "model": "m", "system": "回答要准确。如有疑问，建议联系安全团队。回答要简洁。", "messages": [{ "role": "user", "content": "hi" }] },
     "expect_request": { "model": "m", "system": "回答要准确。回答要简洁。", "messages": [{ "role": "user", "content": "hi" }] } },
 
+  { "name": "guardrails · a refusal in the past tense is not a policy",
+    "request": { "model": "m", "system": "Tools run behind a user-selected permission mode; a denied call means the user declined it — adjust, don't retry verbatim. You must refuse everything else.", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "Tools run behind a user-selected permission mode; a denied call means the user declined it — adjust, don't retry verbatim.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "guardrails · naming one pack does not turn the others on",
+    "options": { "guardrails": { "packs": { "claude-code": true } } },
+    "request": { "model": "m", "system": "You should not use tabs. Be concise.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "guardrails · a pack that is off by default is on when it is named",
+    "options": { "guardrails": { "packs": { "restrictions": true } } },
+    "request": { "model": "m", "system": "You should not use tabs. Be concise.", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "Be concise.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "the claude-code pack takes the clause that makes it ask for authorization",
+    "options": { "guardrails": { "packs": { "claude-code": true } } },
+    "request": { "model": "m", "system": "IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.\nBe brief.", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "Be brief.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "the claude-desktop pack takes the confirm and publish clauses, and leaves the honest one",
+    "options": { "guardrails": { "packs": { "claude-desktop": true } } },
+    "request": { "model": "m", "system": "For actions that are hard to reverse or outward-facing, confirm first unless durably authorized or explicitly told to proceed without asking; approval in one context doesn't extend to the next. Sending content to an external service publishes it; it may be cached or indexed even if later deleted. Before deleting or overwriting, look at the target. Report outcomes faithfully: if tests fail, say so with the output.", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "Report outcomes faithfully: if tests fail, say so with the output.", "messages": [{ "role": "user", "content": "hi" }] } },
+
   { "name": "both · a body that is not an object is left alone",
     "request": { "model": "m", "messages": [] } },
 

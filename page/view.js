@@ -19,7 +19,14 @@
       lede: "Filters what this gateway sends. Your rules keep injection phrases out of a request; the guardrail rules take the refusal-making boilerplate out of an agent's own system prompt.",
       on: "On", off: "Off",
       saved: "Saved", saving: "Saving…", unsaved: "Not saved yet", failed: "Couldn't save",
-      tabInjection: "Injection", tabGuardrails: "Guardrails", tabBench: "Test bench",
+      tabInjection: "Injection", tabGuardrails: "Guardrails", tabBench: "Test bench", tabPresets: "Guardrail presets",
+      presetsLede: "Guardrail sets taken from the agents' own system prompts. Each one was captured from the prompt the target actually sent, and the rules are held to it. Extracting shows, on a verbatim excerpt, exactly what it takes out.",
+      presetSource: "Captured from", presetWhat: "What it removes", presetRules: "Rules",
+      presetExtract: "Extract", presetClose: "Close", presetBench: "Open in the bench", presetApply: "Apply", presetApplied: "Applied",
+      presetReport: "would be removed", presetOfExcerpt: "of this excerpt", presetNothing: "nothing — no rule fired",
+      presetHits: "clauses", presetChars: "characters",
+      presetMissed: "never fired on the capture:", presetExcerpt: "the excerpt it was extracted from", presetLeft: "what would be sent",
+      presetCaveat: "The share is of this excerpt, which is the guardrail-bearing part of the prompt and not all of it; on the whole prompt it is a few percent. A preset only sets the guardrails' packs, unit and scopes — your keep list and your own rules are left as they are.",
       injLede: "What each kind of turn is read for. What a rule matches is replaced by the mask, written to the log, or turned away with an error — before the request is routed.",
       scopes: "Scopes",
       scopeUser: "User turns", scopeTool: "Tool results", scopeSystem: "System prompt", scopeAssistant: "Assistant turns",
@@ -52,7 +59,14 @@
       lede: "过滤经本网关发出的内容。自定义规则把提示词注入的句式挡在请求之外；安全围栏规则把 agent 自带、导致模型频繁拒答的样板条款从系统提示词里剔出去。",
       on: "已启用", off: "已停用",
       saved: "已保存", saving: "保存中…", unsaved: "尚未保存", failed: "保存失败",
-      tabInjection: "注入拦截", tabGuardrails: "安全围栏", tabBench: "试验台",
+      tabInjection: "注入拦截", tabGuardrails: "安全围栏", tabBench: "试验台", tabPresets: "围栏预设",
+      presetsLede: "从各 agent 自己的系统提示词里提取出来的围栏条款。每一份都是目标真实发出的提示词，规则以它为基准校对。点「提取」可以看到它到底删掉了哪些原句。",
+      presetSource: "抓取自", presetWhat: "会剔除什么", presetRules: "规则",
+      presetExtract: "提取", presetClose: "收起", presetBench: "在试验台打开", presetApply: "应用", presetApplied: "已应用",
+      presetReport: "将被剔除", presetOfExcerpt: "占本片段", presetNothing: "无——没有任何规则命中",
+      presetHits: "处命中", presetChars: "字符",
+      presetMissed: "在真实抓取中未命中：", presetExcerpt: "提取所用的片段", presetLeft: "处理后实际发出的内容",
+      presetCaveat: "这里的比例是相对本片段而言的——片段只截取了提示词中带围栏的那部分，对完整提示词只有几个百分点。应用预设只会写入围栏的规则包、单元和范围，你的 keep 白名单与自建规则不会被改动。",
       injLede: "各类文本何时被读取。规则命中的内容会被替换、仅记入日志，或直接以错误拒绝——都在请求路由之前完成。",
       scopes: "作用范围",
       scopeUser: "用户消息", scopeTool: "工具结果", scopeSystem: "系统提示词", scopeAssistant: "助手回复",
@@ -111,7 +125,8 @@
   }
 
   // packs is a kind's rule packs, in the book's order, with whether each is
-  // on now: a pack is on unless the file says it is off
+  // on now: a pack the file names is on unless it says false, and one it
+  // doesn't name is on unless it is off by default
   function packs(E, kind, state) {
     const book = kind === "guardrails" ? E.GUARDRAIL_PACKS : E.INJECTION_PACKS
     const off = kind === "guardrails" ? E.PACKS_OFF : null
@@ -120,8 +135,14 @@
     return Object.keys(book).map((id) => ({
       id,
       count: book[id].length,
-      on: named ? named[id] !== false : !(off && off[id]),
+      on: named && named[id] !== undefined ? named[id] !== false : !(off && off[id]),
     }))
+  }
+
+  // packDefault is whether a pack is on when the file says nothing about it
+  function packDefault(E, kind, id) {
+    if (kind !== "guardrails") return true
+    return !(E.PACKS_OFF && E.PACKS_OFF[id])
   }
 
   // scopeActions is what each kind of turn is read for now, with the
@@ -204,10 +225,13 @@
     return state
   }
 
-  function setPack(state, kind, pack, on) {
+  // setPack writes a pack's switch. What the engine already does by default
+  // is left out of the file, so a pack off by default is written true to
+  // turn it on — deleting the key would only put it back off.
+  function setPack(state, kind, pack, on, defaultOn) {
     const s = kindSpec(state, kind)
-    if (on) delete s.packs[pack]
-    else s.packs[pack] = false
+    if (on === !!defaultOn) delete s.packs[pack]
+    else s.packs[pack] = on
     return state
   }
 
@@ -324,12 +348,67 @@
     }
   }
 
+  // ---------------------------------------------------------------------
+  // the guardrail presets
+  // ---------------------------------------------------------------------
+
+  // presets are the sets the page can apply, each with the text it was taken
+  // from (page/samples.js)
+  function presets() {
+    return Array.isArray(globalThis.PromptGuardPresets) ? globalThis.PromptGuardPresets : []
+  }
+
+  function presetOn(E, state, preset) {
+    return packs(E, "guardrails", state).some((p) => p.id === preset.pack && p.on)
+  }
+
+  // presetRun works a preset's own rules over its own sample, whatever the
+  // options say now: what the extract button reports
+  function presetRun(E, preset) {
+    const opts = { guardrails: { packs: {} } }
+    opts.guardrails.packs[preset.pack] = true
+    const r = E.previewText(preset.sample, opts, "system")
+    const hits = (r.hits || []).map((h) => ({ id: h.id, name: h.name || h.id, unit: h.unit || "", match: h.match }))
+    const before = preset.sample.length
+    const after = r.out.length
+    return {
+      hits,
+      before,
+      after,
+      removed: before - after,
+      percent: before ? (before - after) / before : 0,
+      missed: preset.rules.filter((id) => !hits.some((h) => h.id === id)),
+      out: r.out,
+    }
+  }
+
+  // presetApply turns a preset on: its pack, and the reading it was built for
+  function presetApply(E, state, preset) {
+    setPack(state, "guardrails", preset.pack, true, packDefault(E, "guardrails", preset.pack))
+    setGuard(state, "guardrails", "on", true, true)
+    setGuard(state, "guardrails", "unit", "sentence", "sentence")
+    setGuard(state, "guardrails", "sections", true, true)
+    setGuardScope(state, "guardrails", "system", true)
+    return state
+  }
+
+  // presetSummary is the one line the card shows: how many clauses the
+  // preset takes out of its own excerpt, and how much of it
+  function presetSummary(E, preset, t, lang) {
+    const r = presetRun(E, preset)
+    if (!r.hits.length) return t.presetNothing
+    const zh = String(lang || "").toLowerCase().startsWith("zh")
+    const n = (x) => Number(x).toLocaleString(zh ? "zh-CN" : "en-US")
+    return `${n(r.hits.length)} ${t.presetHits} · ${n(r.removed)} ${t.presetChars} ${t.presetReport} (${Math.round(r.percent * 100)}% ${t.presetOfExcerpt})`
+  }
+
   globalThis.PromptGuardView = {
     TEXT, SCOPE_ORDER, ACTION_ORDER, UNIT_ORDER, BENCH_ROLES,
     text, clone, compiles,
-    rules, packs, scopeActions, guardOn, guardUnit, guardSections, injectionSpec, enabled, keepList, keepsText,
+    rules, packs, packDefault, scopeActions, guardOn, guardUnit, guardSections, injectionSpec, enabled, keepList, keepsText,
     setScope, setPack, setRule, dropRule, revertRule, addRule, setEnabled,
     setInjection, setGuard, setGuardScope, setKeeps,
+    presets, presetOn, presetRun, presetApply, presetSummary,
     bench,
   }
 })()

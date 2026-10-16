@@ -1,6 +1,11 @@
 # what a magpie command leaves here while a plugin of this folder is tried
 .sandbox/
 
+# the prompts scripts/extract-guardrails.mjs captures: somebody else's text,
+# read on this machine and kept here, never committed. page/samples.js — the
+# excerpt the page shows — is generated from it and is committed.
+reference/
+
 # the smoke test's pictures
 page-smoke*.png
 

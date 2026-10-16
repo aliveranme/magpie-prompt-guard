@@ -187,6 +187,33 @@ textarea.field.area { display: block; }
 }
 .add:hover { color: var(--fg); border-color: var(--faint); background: var(--pill); }
 
+/* ── the guardrail presets ── */
+.preset {
+  margin-top: 12px; padding: 13px 14px 12px; border: 1px solid var(--line);
+  border-radius: 12px; background: var(--card);
+}
+.pre-head { display: flex; align-items: flex-start; gap: 14px; }
+.pre-head .who { flex: 1 1 auto; min-width: 0; }
+.pre-head .name { font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+.pre-head .sub { margin-top: 3px; font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+.go {
+  flex: none; height: 26px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--pill); color: var(--fg-2); font: inherit; font-size: 12px;
+  white-space: nowrap; cursor: pointer;
+  transition: background .12s var(--ease), color .12s var(--ease), border-color .12s var(--ease);
+}
+.go:hover { background: var(--pill-hover); color: var(--fg); }
+.go.on {
+  background: var(--accent-soft); color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+.go:disabled { cursor: default; opacity: .8; }
+.pre-what { margin: 10px 0 0; font-size: 12px; line-height: 1.55; color: var(--fg-2); }
+.pre-sum { margin: 8px 0 0; font-size: 12.5px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.pre-detail { margin-top: 12px; }
+.pre-detail .hits { margin-bottom: 2px; }
+.pre-foot { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+
 /* ── the bench ── */
 .bench-in { margin-top: 4px; }
 .bench-out { margin-top: 14px; }

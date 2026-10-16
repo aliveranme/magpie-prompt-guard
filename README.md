@@ -16,8 +16,11 @@ Both are driven by rules you can add, edit and switch off. Rules ship in
 yours is added on top — or replaces a pack's rule by its id.
 
 It is one package that is both a **gateway middleware** and a **page in
-magpie's window**: the page edits the same options the gateway runs on, and
-its test bench shows what the rules would do to a text you paste in.
+magpie's window**: the page edits the same options the gateway runs on, its
+test bench shows what the rules would do to a text you paste in, and its
+**guardrail presets** are extracted from the system prompts Claude Code and
+Claude Desktop really send — with the rules held to that text, and a button
+that shows, on a verbatim excerpt, exactly what comes out.
 
 ```sh
 magpie plugin add ./magpie-prompt-guard      # or a published name
@@ -36,6 +39,7 @@ is in the sidebar's Plugins group.
 | The window | `magpie.page` → `page/index.html`, a sandboxed frame that talks to the window only through `_magpie/bridge.js`: `magpie.ready`, `magpie.options.get/set`, `magpie.theme`/`onTheme`. |
 | The settings | The plugin's own `options` in `plugins.json`. The page writes them; magpie takes a save at most once a second and the gateway picks the change up within about a second, with no restart. |
 | The words | The page is translated by itself from `magpie.theme.lang` (English and 简体中文). |
+| The presets | Each one is the guardrail-bearing text of the agent's own prompt, captured from this machine by `scripts/extract-guardrails.mjs` and built into `page/samples.js` by `scripts/make-samples.mjs`. |
 
 Nothing else of magpie is touched, and the page asks for no reads
 (`magpie.permissions` is empty) — it can see its own options and nothing
@@ -177,15 +181,72 @@ size: holding on to `api key` keeps the sentence about it, not the paragraph.
 | `policy` | on | 9 | `gr-safety`, `gr-legal`, `gr-categories`, `gr-safeai`, `gr-priority`, `gr-heading-safety`, `gr-label-safety`, `gr-heading-safety-cn`, `gr-safety-cn` |
 | `harm` | on | 3 | `gr-harm`, `gr-harmtopics`, `gr-harm-cn` |
 | `meta` | on | 4 | `gr-antiinject`, `gr-untrusted`, `gr-injectionnotice`, `gr-notinstructions` |
+| `claude-code` | **off** | 7 | `cc-authorized-testing`, `cc-refuse-destructive`, `cc-dual-use`, `cc-injection-flag`, `cc-actions-with-care`, `cc-confirm-first`, `cc-risky-actions` |
+| `claude-desktop` | **off** | 6 | `ccd-authorized-testing`, `ccd-refuse-destructive`, `ccd-dual-use`, `ccd-confirm-first`, `ccd-publish`, `ccd-inspect-first` |
 | `restrictions` | **off** | 3 | `gr-mustnot`, `gr-notallowed`, `gr-neverdo` |
 
 `restrictions` is the hammer: it takes out every "you must not", including the
 guidance that has nothing to do with refusing a request. It is off until you
 ask for it.
 
+What `keep` protects by default is
+`["api key", "password", "private key", "secret key"]` — phrases, not bare
+words, because `credential` alone also matches "credential testing", and
+protecting that would hold on to the very clause about authorized security
+testing this plugin exists to take out.
+
 English and 简体中文 rule ids are separate on purpose: the agents' own system
 prompts are written in English, a message that reaches you can be in either,
 and you may want one pack off and the other on.
+
+## The guardrail presets
+
+The last two packs are not guesses about how an agent's prompt reads: they
+are held to the prompt it actually sends. **Plugins → Prompt guard →
+Guardrail presets** has a card for each one:
+
+- **Extract** unfolds the clauses it takes out — the rule, and the words it
+  matched in the real text — and the text that would be left.
+- **Open in the bench** loads that same excerpt into the test bench, where
+  the rest of the settings can be tried against it.
+- **Apply** writes the pack on, with the reading it was built for (one
+  sentence at a time, whole sections for a matched heading).
+
+Each card also says how much of its own excerpt it removes. That share is of
+the *excerpt* — the guardrail-bearing part of a prompt and not all of it —
+which is why it reads high; on the whole captured prompt it is around 15%.
+
+### Where the text comes from
+
+Nothing here is quoted from a blog post. `scripts/extract-guardrails.mjs`
+points the agent at a stand-in for the vendor's API on loopback and keeps the
+body it posts:
+
+```sh
+node scripts/extract-guardrails.mjs          # capture every target found
+node scripts/extract-guardrails.mjs --check  # hold the packs to the capture
+```
+
+It writes `reference/<target>.system.txt` and `reference/<target>.json` (the
+version and entrypoint it read out of the prompt's own header), and then
+writes `page/samples.js` from that. **`reference/` is not committed** — it is
+somebody else's prompt text, read on your machine — while the excerpts the
+page shows and the patterns derived from them are.
+
+`--check` is the regression check to run after an agent updates: it reports
+what each preset removes, and fails when a rule's pattern no longer matches
+the capture, which means the prompt was rewritten and the rule needs reading
+again. A rule that matches but never fires is reported separately — that is
+not a failure, it means one of the generic packs covered the clause first.
+
+| Preset | Target | Captured | What it takes out |
+|---|---|---|---|
+| `claude-code` | Claude Code 2.1.301, the interactive CLI | 2026-10-16 | The `IMPORTANT:` block that says to refuse destructive techniques and to demand clear authorization before dual-use security work, the "flag it to the user" line about injected tool results, and the whole `# Executing actions with care` section |
+| `claude-desktop` | Claude Desktop 2.37337.1.0, the Claude Code engine 2.1.295 it ships | 2026-10-16 | The same `IMPORTANT:` block, plus the harness's "confirm first unless durably authorized", "sending content to an external service publishes it" and "before deleting or overwriting, look at the target" |
+
+Both leave alone what is good practice rather than a fence: the OWASP bullet,
+"prefer editing existing files", "only use emojis if asked", and the
+instruction to report a failed test faithfully all stay.
 
 ## What it is not
 
@@ -240,9 +301,11 @@ prompt-guard [claude]: injection ignore previous instructions in user ("ignore a
 ## Working on it
 
 ```sh
-bun test                          # 95 cases and the editor's own, on both engines
-bun run build                     # regenerate page/engine.js from the middleware
-node scripts/page-smoke.mjs       # drive the page in a real browser
+bun test                          # 108 cases and the editor's own, on both engines
+bun run build                     # regenerate page/engine.js and page/samples.js
+bun run extract                   # capture the agents' prompts into reference/
+bun run check                     # hold the packs to what was captured
+npm run smoke                     # drive the page in a real browser
 ```
 
 `page/engine.js` is **generated** — it is `prompt-guard.middleware.js` with
@@ -258,13 +321,17 @@ prompt-guard.middleware.js   the engine: the hook, the rule book, the four
 cases.json                   what each rule does, and what comes out
 prompt-guard.test.mjs        the cases, on both engines; the editor's own
 page/engine.js               generated — do not edit
+page/samples.js              generated — the presets' excerpts
 page/view.js                 the editor's logic, without the DOM
 page/app.js                  the editor: magpie's switch, strip and menu
 page/index.html  style.css   the page, drawn from the theme's tokens
 page/icon.svg                the tab's picture
 scripts/middleware.mjs       runs a case the way the gateway calls it
 scripts/sync-engine.mjs      writes page/engine.js
+scripts/extract-guardrails.mjs  captures a prompt from the agent itself
+scripts/make-samples.mjs     writes page/samples.js from the capture
 scripts/page-smoke.mjs       a developer's check in a real browser
+reference/                   the captures — not committed
 ```
 
 ## 中文
@@ -282,7 +349,9 @@ scripts/page-smoke.mjs       a developer's check in a real browser
 其上，同 id 即覆盖内置规则。
 
 **它同时是网关中间件和 magpie 窗口里的一页**：页面编辑的就是网关执行的那份 options，
-页面里的「试验台」让你直接粘贴一段文本，看规则会把它改成什么样。
+页面里的「试验台」让你直接粘贴一段文本，看规则会把它改成什么样；「围栏预设」页则是从
+Claude Code 与 Claude Desktop **真实发出的**系统提示词里提取出来的。「提取」按钮会把
+命中的原句和剔除后的结果直接摊开给你看。
 
 ```sh
 magpie plugin add ./magpie-prompt-guard
@@ -306,6 +375,11 @@ magpie plugin add ./magpie-prompt-guard
   保护 `api key` 只保住那一句，不会连整段一起保住。
 - **`restrictions` 包默认关闭**：它会删掉所有 “you must not” 句式，包括与拒答无关的
   正常指引，属于重锤，要用再开。
+- **`claude-code` / `claude-desktop` 包默认也关闭**：它们删除的是特定 agent 系统提示词里的
+  授权与拒答条款，是否取用由你决定。在「围栏预设」页一键应用即可。
+- **`keep` 默认只保护词组而非单词**：`api key`、`password`、`private key`、`secret key`。
+  因为单独的 `credential` 会命中 “credential testing”，一保护就把最该删的那句 dual-use
+  授权条款也保住了。
 - **正则编译失败不会抛错**：坏 pattern 被忽略，既不会拖垮网关，也不会把所有请求拒掉；
   页面里会标红提示。
 - **失败即放行（fail open）**：钩子抛异常、超 250 ms 或返回非对象时，请求原样发出。
@@ -315,12 +389,36 @@ magpie plugin add ./magpie-prompt-guard
 - **剔除围栏会改变模型行为**：这就是它的目的，但也可能删掉你想保留的指令。
   建议先用试验台跑一遍真实的系统提示词，该保的写进 `keep`。
 
+### 关于两个 Claude 预设的出处
+
+不是从博客抄的：`scripts/extract-guardrails.mjs` 在本地起一个假上游，让 agent 把请求发给它，
+把它真正 POST 出去的 body 留下来：
+
+```sh
+node scripts/extract-guardrails.mjs          # 抓取本机能找到的每个目标
+node scripts/extract-guardrails.mjs --check  # 用抓取结果校验规则包
+```
+
+结果写到 `reference/`（**不入库**——那是别人的提示词文本），再由
+`scripts/make-samples.mjs` 生成入库的 `page/samples.js`。agent 升级后重跑 `--check`：
+某条规则的模式不再匹配，就说明提示词被改写了，该重新读一遍。
+
+| 预设 | 目标 | 抓取日期 | 剔除内容 |
+|---|---|---|---|
+| `claude-code` | Claude Code 2.1.301（交互 CLI） | 2026-10-16 | 声明「拒绝破坏性技术」并要求双用途安全工作必须有明确授权的那段 `IMPORTANT:`；工具结果疑似注入时「先向用户报告」那条；整个 `# Executing actions with care` 小节 |
+| `claude-desktop` | Claude Desktop 2.37337.1.0 自带的 Claude Code 引擎 2.1.295 | 2026-10-16 | 同一段 `IMPORTANT:`，加上 harness 自己的「不可逆或对外动作先确认」「发往外部服务即等于公开」「删改前先看清楚目标」 |
+
+两者都保留「是良好实践而不是围栏」的内容：OWASP 那条、「优先改现有文件」、「只在明确要求时用 emoji」、
+以及「测试失败就如实报告」。
+
 ### 测试与开发
 
 ```sh
-bun test                    # 95 条用例 + 编辑器逻辑，双引擎各跑一遍
-bun run build               # 由中间件重新生成 page/engine.js
-node scripts/page-smoke.mjs # 真实浏览器里驱动页面
+bun test                    # 108 条用例 + 编辑器逻辑，双引擎各跑一遍
+bun run build               # 重新生成 page/engine.js 与 page/samples.js
+bun run extract             # 抓取 agent 的真实系统提示词到 reference/
+bun run check               # 用抓取结果校验规则包
+npm run smoke               # 真实浏览器里驱动页面
 ```
 
 `page/engine.js` 是**生成文件**：把中间件的 `export` 去掉、入口挂到

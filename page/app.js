@@ -487,6 +487,77 @@
     out.append(head2, pre)
   }
 
+  // ---- the guardrail presets: what was extracted from an agent's own
+  // system prompt, what it takes out, and the way to turn it on
+
+  function drawPresets() {
+    const t = V.text(lang)
+    const zh = String(lang || "").toLowerCase().startsWith("zh")
+    const box = el("section", "panel")
+    box.append(el("p", "lede", t.presetsLede))
+
+    for (const p of V.presets()) {
+      const card = el("article", "preset")
+      const on = V.presetOn(E, state, p)
+
+      const head = el("div", "pre-head")
+      const who = el("div", "who")
+      who.append(el("div", "name", p.name))
+      who.append(el("div", "sub", t.presetSource + " · " + p.source + (p.captured ? " · " + p.captured : "")))
+      head.append(who)
+      const apply = el("button", "go" + (on ? " on" : ""), on ? t.presetApplied : t.presetApply)
+      apply.type = "button"
+      apply.disabled = on
+      apply.onclick = () => change(() => V.presetApply(E, state, p))
+      head.append(apply)
+      card.append(head)
+
+      card.append(el("p", "pre-what", t.presetWhat + " — " + (p.what ? p.what[zh ? "zh" : "en"] : "")))
+
+      const r = V.presetRun(E, p)
+      card.append(el("p", "pre-sum", V.presetSummary(E, p, t, lang)))
+      if (r.missed.length) card.append(el("p", "note bad", t.presetMissed + " " + r.missed.join(", ")))
+
+      const detail = el("div", "pre-detail")
+      detail.hidden = true
+      const hits = el("div", "hits")
+      for (const h of r.hits) {
+        const line = el("div", "hit")
+        line.append(el("span", "hit-name", h.name))
+        line.append(el("span", "hit-tag", h.id + (h.unit ? " · " + (t["unit" + h.unit[0].toUpperCase() + h.unit.slice(1)] || h.unit) : "")))
+        line.append(el("code", "hit-match", h.match))
+        hits.append(line)
+      }
+      detail.append(el("div", "sec-h", t.presetRules), hits)
+      detail.append(el("div", "sec-h", t.presetLeft))
+      detail.append(el("pre", "out", r.out))
+      card.append(detail)
+
+      const foot = el("div", "pre-foot")
+      const extract = el("button", "go", t.presetExtract)
+      extract.type = "button"
+      extract.onclick = () => {
+        detail.hidden = !detail.hidden
+        extract.textContent = detail.hidden ? t.presetExtract : t.presetClose
+      }
+      const bench = el("button", "go", t.presetBench)
+      bench.type = "button"
+      bench.onclick = () => {
+        role = "system"
+        benchText = p.sample
+        benchEdited = true
+        tab = "bench"
+        render()
+      }
+      foot.append(extract, bench)
+      card.append(foot)
+      box.append(card)
+    }
+
+    box.append(el("p", "hint", t.presetCaveat))
+    return box
+  }
+
   // ---------------------------------------------------------------------
 
   function render() {
@@ -495,6 +566,7 @@
     const t = V.text(lang)
     if (tab === "injection") main.append(drawInjection())
     else if (tab === "guardrails") main.append(drawGuardrails())
+    else if (tab === "presets") main.append(drawPresets())
     else main.append(drawBench())
     const raw = el("details", "raw-box")
     const sum = el("summary", "", t.raw)

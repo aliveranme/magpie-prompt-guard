@@ -8,7 +8,10 @@
   "license": "MIT",
   "scripts": {
     "test": "bun test",
-    "build": "node scripts/sync-engine.mjs"
+    "build": "node scripts/sync-engine.mjs && node scripts/make-samples.mjs",
+    "extract": "node scripts/extract-guardrails.mjs",
+    "check": "node scripts/extract-guardrails.mjs --check",
+    "smoke": "node scripts/page-smoke.mjs"
   },
   "magpie": {
     "middleware": "./prompt-guard.middleware.js",
@@ -36,9 +39,17 @@
         "on": true,
         "unit": "sentence",
         "sections": true,
-        "packs": { "refusal": true, "policy": true, "harm": true, "meta": true, "restrictions": false },
+        "packs": {
+          "refusal": true,
+          "policy": true,
+          "harm": true,
+          "meta": true,
+          "claude-code": false,
+          "claude-desktop": false,
+          "restrictions": false
+        },
         "scopes": { "system": true },
-        "keep": ["api key", "password", "credential", "secret", "private key"],
+        "keep": ["api key", "password", "private key", "secret key"],
         "rules": [
           { "id": "gr-team", "on": false, "name": "A house paragraph", "pattern": "our Acceptable Use Policy", "unit": "line" }
         ]

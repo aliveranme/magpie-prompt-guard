@@ -291,7 +291,15 @@ const INJECTION_PACKS = {
 const GUARDRAIL_PACKS = {
   // The refusal reflex, and the hand-off to somebody else.
   refusal: [
-    { id: "gr-refuse", name: "refuse / decline", pattern: "\\b(?:refus(?:e|es|ed|al|ing)|declin(?:e|es|ed|ing))\\b" },
+    {
+      // a refusal is a policy, not a retelling: "the user declined the tool
+      // call" is the agent saying what happened, and an agent's prompt is
+      // full of those, so the past tense is left out and the forms a policy
+      // is written in are the ones this takes
+      id: "gr-refuse",
+      name: "refuse / decline",
+      pattern: "\\b(?:refus(?:e|es|ing|al)|declin(?:e|es|ing))\\b",
+    },
     {
       id: "gr-cannot",
       name: "cannot help with that",
@@ -411,6 +419,86 @@ const GUARDRAIL_PACKS = {
       pattern: "\\b(?:is|are)\\s+not\\s+(?:an?\\s+)?(?:instruction|instructions|command|commands|request|requests)\\s+from\\b",
     },
   ],
+  // The clauses an agent's own prompt uses to make a model refuse work on
+  // security. These come from the prompts themselves: see reference/ and
+  // scripts/extract-guardrails.mjs, which captures them from the installed
+  // engine and holds these patterns to what it finds.
+  //
+  // Two packs, each self-contained for its target, both off until asked
+  // for: the clauses are the agent's, and removing them is a decision.
+  "claude-code": [
+    {
+      id: "cc-authorized-testing",
+      name: "「授权安全测试」声明",
+      pattern: "\\bAssist\\s+with\\s+authorized\\s+security\\s+testing\\b",
+    },
+    {
+      id: "cc-refuse-destructive",
+      name: "「拒绝破坏性技术」",
+      pattern: "\\bRefuse\\s+requests?\\s+for\\s+(?:destructive|DoS|mass\\s+targeting|supply\\s+chain|detection\\s+evasion)\\b",
+    },
+    {
+      id: "cc-dual-use",
+      name: "「双用途工具需授权语境」",
+      pattern: "\\bdual-use\\s+security\\s+tools?\\b|\\brequire[s]?\\s+clear\\s+authorization\\s+context\\b",
+    },
+    {
+      id: "cc-injection-flag",
+      name: "「工具结果可能含注入，先向用户报告」",
+      pattern: "\\battempt\\s+at\\s+prompt\\s+injection\\b|\\bflag\\s+it\\s+directly\\s+to\\s+the\\s+user\\b",
+    },
+    {
+      id: "cc-actions-with-care",
+      name: "「Executing actions with care」整节",
+      flags: "im",
+      unit: "block",
+      pattern: "^\\s{0,3}#{1,6}\\s*Executing\\s+actions\\s+with\\s+care\\s*$",
+    },
+    {
+      id: "cc-confirm-first",
+      name: "「默认先确认」",
+      pattern: "\\balways\\s+confirm\\s+first\\b|\\bask\\s+for\\s+confirmation\\s+before\\s+proceeding\\b|\\bAuthorization\\s+stands\\s+for\\s+the\\s+scope\\s+specified\\b",
+    },
+    {
+      id: "cc-risky-actions",
+      name: "「需要确认的高风险动作」清单",
+      flags: "im",
+      unit: "line",
+      pattern: "^\\s*(?:-\\s*(?:Destructive\\s+operations|Hard-to-reverse\\s+operations|Actions\\s+visible\\s+to\\s+others|Uploading\\s+content\\s+to\\s+third-party)\\b|Examples\\s+of\\s+the\\s+kind\\s+of\\s+risky\\s+actions\\b)",
+    },
+  ],
+  "claude-desktop": [
+    {
+      id: "ccd-authorized-testing",
+      name: "「授权安全测试」声明",
+      pattern: "\\bAssist\\s+with\\s+authorized\\s+security\\s+testing\\b",
+    },
+    {
+      id: "ccd-refuse-destructive",
+      name: "「拒绝破坏性技术」",
+      pattern: "\\bRefuse\\s+requests?\\s+for\\s+(?:destructive|DoS|mass\\s+targeting|supply\\s+chain|detection\\s+evasion)\\b",
+    },
+    {
+      id: "ccd-dual-use",
+      name: "「双用途工具需授权语境」",
+      pattern: "\\bdual-use\\s+security\\s+tools?\\b|\\brequire[s]?\\s+clear\\s+authorization\\s+context\\b",
+    },
+    {
+      id: "ccd-confirm-first",
+      name: "「难逆或对外动作先确认」",
+      pattern: "\\bconfirm\\s+first\\s+unless\\s+durably\\s+authorized\\b|\\bapproval\\s+in\\s+one\\s+context\\s+doesn'?t\\s+extend\\s+to\\s+the\\s+next\\b",
+    },
+    {
+      id: "ccd-publish",
+      name: "「发往外部服务等于公开」",
+      pattern: "\\bSending\\s+content\\s+to\\s+an\\s+external\\s+service\\s+publishes\\s+it\\b",
+    },
+    {
+      id: "ccd-inspect-first",
+      name: "「删改前先看清楚」",
+      pattern: "\\bBefore\\s+deleting\\s+or\\s+overwriting,\\s+look\\s+at\\s+the\\s+target\\b",
+    },
+  ],
   // Off by default: the hammer. Every "you must not", "never", "avoid" —
   // including the guidance that has nothing to do with refusing.
   restrictions: [
@@ -508,11 +596,15 @@ function inScope(r, scope) {
 // A pack nobody asked for that stays off until it is asked for by name.
 // The restrictions pack is the hammer: it takes out every "you must not",
 // including guidance that has nothing to do with refusing a request.
-const PACKS_OFF = { restrictions: true }
+const PACKS_OFF = { restrictions: true, "claude-code": true, "claude-desktop": true }
 
 // What a keep expression protects when the options name none: the clauses
-// about not leaking credentials are the guardrails worth keeping.
-const DEFAULT_KEEP = ["api key", "password", "credential", "secret", "private key"]
+// about not leaking a credential are the guardrails worth keeping. These are
+// phrases rather than bare words on purpose — "credential" alone also
+// appears in "credential testing", and protecting that would hold on to the
+// very clause about authorized security testing this plugin exists to take
+// out.
+const DEFAULT_KEEP = ["api key", "password", "private key", "secret key"]
 
 // collect merges the packs with the owner's rules: a rule of theirs with a
 // pack rule's id changes that one, a new id is added beside them.
@@ -521,9 +613,13 @@ function collect(packs, on, user, off) {
   const order = []
   const named = on && typeof on === "object" ? on : null
   for (const pack of Object.keys(packs)) {
-    if (named && named[pack] === false) continue
-    if (!named && off && off[pack]) continue
+    // a pack the file names is on unless it says false; one it doesn't name
+    // is on unless it is off by default — naming one pack must not turn
+    // every other pack on with it
+    const want = named && named[pack] !== undefined ? named[pack] !== false : !(off && off[pack])
+    if (!want) continue
     for (const r of packs[pack]) {
+      if (byId[r.id]) continue
       byId[r.id] = { ...r, pack, on: true }
       order.push(r.id)
     }
@@ -824,8 +920,11 @@ function splitSentences(text) {
   return out
 }
 
+// A full stop, a question mark or an exclamation ends a sentence; a
+// semicolon does not. Taking a semicolon for one would cut a policy line in
+// half and leave the second clause standing on its own in what is sent.
 function endsSentence(c) {
-  return c === "." || c === "!" || c === "?" || c === "\u3002" || c === "\uff01" || c === "\uff1f" || c === "\uff1b" || c === ";"
+  return c === "." || c === "!" || c === "?" || c === "\u3002" || c === "\uff01" || c === "\uff1f" || c === "\uff1b"
 }
 
 // a Chinese full stop, exclamation, question mark or semicolon
@@ -985,7 +1084,10 @@ function rulesFor(kind, spec) {
   const out = []
   const at = {}
   for (const pack of Object.keys(packs)) {
-    const on = named ? named[pack] !== false : !(off && off[pack])
+    // the same rule the gateway applies: a pack the file names is on unless
+    // it says false, and one it doesn't name is on unless it is off by
+    // default — naming one pack must not turn every other one on
+    const on = named && named[pack] !== undefined ? named[pack] !== false : !(off && off[pack])
     for (const r of packs[pack]) {
       at[r.id] = out.length
       out.push({

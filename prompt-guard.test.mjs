@@ -126,7 +126,9 @@ test("previewRequest leaves the request it was given alone", () => {
 const engine = page
 const V = (() => {
   const box = { PromptGuard: engine }
-  new Function("globalThis", readFileSync(join(here, "page", "view.js"), "utf8"))(box)
+  const load = (f) => new Function("globalThis", readFileSync(join(here, "page", f), "utf8"))(box)
+  load("samples.js")
+  load("view.js")
   return box.PromptGuardView
 })()
 // write runs the editor's options through the gateway, as the plugin would
@@ -138,8 +140,10 @@ function write(state, c) {
 test("the editor opens on the engine's own defaults", () => {
   expect(V.packs(engine, "injection", {}).every((p) => p.on)).toBe(true)
   expect(V.packs(engine, "guardrails", {}).map((p) => [p.id, p.on])).toEqual([
-    ["refusal", true], ["policy", true], ["harm", true], ["meta", true], ["restrictions", false],
+    ["refusal", true], ["policy", true], ["harm", true], ["meta", true],
+    ["claude-code", false], ["claude-desktop", false], ["restrictions", false],
   ])
+  expect(engine.DEFAULT_KEEP).toEqual(["api key", "password", "private key", "secret key"])
   expect(V.scopeActions({}, "injection")).toEqual({ user: "neutralize", tool: "neutralize", system: "off", assistant: "off" })
   expect(V.scopeActions({}, "guardrails")).toEqual({ system: true, user: false, tool: false, assistant: false })
   expect(V.injectionSpec({})).toEqual({ mask: "[filtered]", status: 400, message: "" })
@@ -171,15 +175,49 @@ test("a scope the editor set is the action the gateway takes", () => {
 
 test("a pack the editor turned off stops firing", () => {
   const state = {}
-  V.setPack(state, "guardrails", "policy", false)
+  V.setPack(state, "guardrails", "policy", false, true)
   expect(state.guardrails.packs).toEqual({ policy: false })
   const body = { model: "m", messages: [{ role: "system", content: "# Safety and Security\nBe careful." }] }
   expect(write(state, { request: body }).request).toEqual(body)
   // and back on, the key goes rather than being written as true, so a rule
   // added to the pack later arrives with it
-  V.setPack(state, "guardrails", "policy", true)
+  V.setPack(state, "guardrails", "policy", true, true)
   expect(state.guardrails.packs).toEqual({})
   expect(write(state, { request: body }).request.messages[0].content).toBe("")
+})
+
+test("a pack off by default is written true to turn it on", () => {
+  const state = {}
+  // deleting the key would only put it back off, since off is the default
+  V.setPack(state, "guardrails", "restrictions", true, false)
+  expect(state.guardrails.packs).toEqual({ restrictions: true })
+  V.setPack(state, "guardrails", "restrictions", false, false)
+  expect(state.guardrails.packs).toEqual({})
+})
+
+test("the rule list and the pack list agree about what is on", () => {
+  const cases = [
+    {},
+    { guardrails: { packs: { "claude-code": true } } },
+    { guardrails: { packs: { restrictions: true } } },
+    { guardrails: { packs: { policy: false, restrictions: true } } },
+  ]
+  for (const state of cases) {
+    for (const kind of ["injection", "guardrails"]) {
+      const packs = V.packs(engine, kind, state)
+      const rules = V.rules(engine, kind, state)
+      for (const p of packs) {
+        for (const r of rules.filter((x) => x.pack === p.id)) expect([p.id, r.on]).toEqual([p.id, p.on])
+      }
+    }
+  }
+})
+
+test("naming one pack does not turn a default-off pack on with it", () => {
+  const state = {}
+  V.setPack(state, "guardrails", "claude-code", true, V.packDefault(engine, "guardrails", "claude-code"))
+  const body = { model: "m", messages: [{ role: "system", content: "You should not use tabs. Be brief." }] }
+  expect(write(state, { request: body }).request).toEqual(body)
 })
 
 test("a rule the editor added is the rule the gateway runs", () => {
@@ -288,4 +326,76 @@ test("the bench reads the rules the editor currently has, not the saved ones", (
 test("a pattern the editor cannot compile is drawn as broken", () => {
   expect(V.rules(engine, "injection", { injection: { rules: [{ id: "mine-1", pattern: "(unclosed" }] } }).find((r) => r.id === "mine-1").ok).toBe(false)
   expect(V.rules(engine, "injection", { injection: { rules: [{ id: "mine-1", pattern: "\\bRaven\\b" }] } }).find((r) => r.id === "mine-1").ok).toBe(true)
+})
+
+// ---------------------------------------------------------------------------
+// the guardrail presets, and the text they were extracted from
+// ---------------------------------------------------------------------------
+
+test("a preset names rules that exist, and is off until it is asked for", () => {
+  const list = V.presets()
+  expect(list.map((p) => p.id)).toEqual(["claude-code", "claude-desktop"])
+  const book = V.rules(engine, "guardrails", {}).map((r) => r.id)
+  for (const p of list) {
+    expect(p.sample.length).toBeGreaterThan(500)
+    expect(p.source).toBeTruthy()
+    expect(p.captured).toBeTruthy()
+    expect(p.rules.length).toBeGreaterThan(2)
+    for (const id of p.rules) expect(book).toContain(id)
+    expect(V.presetOn(engine, {}, p)).toBe(false)
+  }
+})
+
+test("applying a preset writes its pack, and nothing of the owner's", () => {
+  for (const p of V.presets()) {
+    const state = { guardrails: { keep: ["house style"], rules: [{ id: "mine-1", pattern: "house style" }] } }
+    V.presetApply(engine, state, p)
+    expect(state.guardrails.packs).toEqual({ [p.pack]: true })
+    expect(state.guardrails.keep).toEqual(["house style"])
+    expect(state.guardrails.rules).toHaveLength(1)
+    expect(V.presetOn(engine, state, p)).toBe(true)
+  }
+})
+
+test("a preset takes the clauses it is for out of the text it came from", () => {
+  for (const p of V.presets()) {
+    const r = V.presetRun(engine, p)
+    expect(r.hits.length).toBeGreaterThan(2)
+    expect(r.percent).toBeGreaterThan(0.5)
+    expect(r.out.length).toBeGreaterThan(100)
+    expect(r.out).not.toContain("authorized security testing")
+    expect(r.out).not.toContain("Dual-use security tools")
+    expect(r.out).not.toContain("Refuse requests")
+    if (p.id === "claude-code") {
+      expect(r.out).not.toContain("Executing actions with care")
+      // good practice, not a fence: it stays
+      expect(r.out).toContain("OWASP top 10")
+    } else {
+      expect(r.out).not.toContain("confirm first unless durably authorized")
+      expect(r.out).not.toContain("external service publishes it")
+      // being honest about a failed test is not a fence either
+      expect(r.out).toContain("Report outcomes faithfully")
+    }
+  }
+})
+
+test("the gateway does what the preset was applied for", () => {
+  const p = V.presets()[0]
+  const state = {}
+  V.presetApply(engine, state, p)
+  const body = { model: "m", messages: [{ role: "system", content: p.sample }] }
+  const sent = write(state, { request: body }).request.messages[0].content
+  expect(sent).not.toContain("Dual-use security tools")
+  expect(sent).not.toContain("authorized security testing")
+  expect(sent.length).toBeLessThan(p.sample.length)
+})
+
+test("the preset summary is the line the page shows", () => {
+  const t = V.text("en")
+  const p = V.presets()[0]
+  const r = V.presetRun(engine, p)
+  const say = V.presetSummary(engine, p, t, "en")
+  expect(say).toContain(String(r.removed).replace(/\B(?=(\d{3})+(?!\d))/g, ","))
+  expect(say).toContain("%")
+  expect(V.presetSummary(engine, { sample: "nothing here", pack: "claude-code", rules: [] }, t, "en")).toBe(t.presetNothing)
 })

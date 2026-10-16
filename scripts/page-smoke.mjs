@@ -113,10 +113,41 @@ try {
   await pg.goto(base, { waitUntil: "load" })
   await pg.waitForSelector("#enabled", { timeout: 5000 })
   await pg.waitForFunction(() => document.querySelectorAll("#main .rule").length > 5, null, { timeout: 5000 })
+  let writes = []
 
   // the header, in the reader's language, and the tabs
   check((await pg.textContent("h1")) === "提示词守卫", "the title is translated from the window's language")
-  check((await pg.locator("#tabs .opt").count()) === 3, "three tabs")
+  check((await pg.locator("#tabs .opt").count()) === 4, "four tabs")
+
+  // the guardrail presets: what was extracted, and applying one
+  await pg.locator('#tabs .opt[data-tab="presets"]').click()
+  await pg.waitForSelector("#main .preset", { timeout: 3000 })
+  const cards = await pg.locator("#main .preset").count()
+  check(cards === 2, `the presets are drawn (${cards})`)
+  const sums = await pg.locator("#main .pre-sum").allTextContents()
+  check(sums.length === 2 && sums.every((s) => s.includes("%")), "each says how much of its own excerpt it takes out")
+  const source = await pg.locator("#main .pre-head .sub").first().textContent()
+  check(/2\.1\.301/.test(source) && /sdk-cli/.test(source), "the source, version and entrypoint are shown")
+  const detail = pg.locator("#main .pre-detail").first()
+  check(await detail.isHidden(), "the extraction starts folded away")
+  await pg.locator("#main .pre-foot .go").first().click()
+  check(await detail.isVisible(), "Extract unfolds the clauses it takes out")
+  check((await detail.locator(".hit").count()) >= 3, "with a line for each clause")
+  check((await detail.locator(".out").textContent()).includes("OWASP top 10"), "and the text that would be sent, good practice still in it")
+  await pg.locator("#main .pre-head .go").first().click()
+  await pg.waitForTimeout(1400)
+  writes = await pg.evaluate(() => window.__writes)
+  check(writes[writes.length - 1].guardrails.packs["claude-code"] === true, "Apply writes the pack on")
+  check(await pg.locator("#main .pre-head .go").first().isDisabled(), "and the card says it is applied")
+
+  await pg.locator("#main .pre-foot .go").nth(1).click()
+  await pg.waitForTimeout(300)
+  check((await pg.locator("#bench-text").inputValue()).includes("authorized security testing"), "Open in the bench loads the real excerpt")
+  check((await pg.locator("#bench-out .hit").count()) >= 3, "and the bench shows that preset's rules firing on it")
+
+  // and back to the injection panel, which the rest of this drives
+  await pg.locator('#tabs .opt[data-tab="injection"]').click()
+  await pg.waitForSelector("#main .rule", { timeout: 3000 })
 
   // the injection panel: the scope rows, the packs and the rules
   const injRules = await pg.locator("#main .rule").count()
@@ -127,7 +158,7 @@ try {
   // a switch on a rule writes {id, on:false}, and nothing else
   await pg.locator("#main .rule .lib-switch").first().click()
   await pg.waitForTimeout(1400)
-  let writes = await pg.evaluate(() => window.__writes)
+  writes = await pg.evaluate(() => window.__writes)
   check(writes.length >= 1, "turning a rule off saves")
   const last = writes[writes.length - 1]
   check(last.injection && Array.isArray(last.injection.rules) && last.injection.rules[0].on === false,
