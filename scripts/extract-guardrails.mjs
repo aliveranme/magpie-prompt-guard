@@ -220,13 +220,28 @@ async function checkPacks() {
     const file = join(refDir, `${preset.id}.system.txt`)
     if (!existsSync(file)) continue
     const body = readFileSync(file, "utf8").split("===== BLOCK =====").slice(1).join("===== BLOCK =====")
-    const options = { guardrails: { packs: {} } }
-    options.guardrails.packs[preset.pack] = true
+    const options = { guardrails: { packs: {}, keep: [...(mod.DEFAULT_KEEP || []), ...(preset.keep || [])] } }
+    for (const id of preset.packs) options.guardrails.packs[id] = true
     const r = mod.previewText(body, options, "system")
     const fired = new Set(r.hits.map((h) => h.id))
     const percent = ((body.length - r.out.length) / body.length) * 100
     console.log(`${preset.id}: ${fired.size} rule(s) removed something, ${percent.toFixed(1)}% of the prompt gone, ${r.out.length} chars left`)
     for (const h of r.hits) console.log(`   ${h.id}  ${JSON.stringify(String(h.match).slice(0, 70))}`)
+
+    // the two invariants this whole thing exists for: what limits the work is
+    // gone, and what makes the agent careful is still there
+    for (const s of preset.gone || []) {
+      if (r.out.includes(s)) {
+        bad++
+        console.log(`   LIMIT LEFT: ${JSON.stringify(s)} is still in what would be sent`)
+      }
+    }
+    for (const s of preset.kept || []) {
+      if (!r.out.includes(s)) {
+        bad++
+        console.log(`   CAUTION LOST: ${JSON.stringify(s)} was removed — the owner wants it kept`)
+      }
+    }
 
     const book = mod.rulesFor("guardrails", { packs: {} })
     const quiet = []

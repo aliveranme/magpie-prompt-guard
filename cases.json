@@ -339,10 +339,59 @@
     "request": { "model": "m", "system": "IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases.\nBe brief.", "messages": [{ "role": "user", "content": "hi" }] },
     "expect_request": { "model": "m", "system": "Be brief.", "messages": [{ "role": "user", "content": "hi" }] } },
 
-  { "name": "the claude-desktop pack takes the confirm and publish clauses, and leaves the honest one",
+  { "name": "the claude-desktop pack takes the fences and leaves the caution",
     "options": { "guardrails": { "packs": { "claude-desktop": true } } },
-    "request": { "model": "m", "system": "For actions that are hard to reverse or outward-facing, confirm first unless durably authorized or explicitly told to proceed without asking; approval in one context doesn't extend to the next. Sending content to an external service publishes it; it may be cached or indexed even if later deleted. Before deleting or overwriting, look at the target. Report outcomes faithfully: if tests fail, say so with the output.", "messages": [{ "role": "user", "content": "hi" }] },
+    "request": { "model": "m", "system": "Assist with authorized security testing. For actions that are hard to reverse or outward-facing, confirm first unless durably authorized or explicitly told to proceed without asking; approval in one context doesn't extend to the next. Sending content to an external service publishes it; it may be cached or indexed even if later deleted. Before deleting or overwriting, look at the target. Report outcomes faithfully: if tests fail, say so with the output.", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "For actions that are hard to reverse or outward-facing, confirm first unless durably authorized or explicitly told to proceed without asking; approval in one context doesn't extend to the next. Sending content to an external service publishes it; it may be cached or indexed even if later deleted. Before deleting or overwriting, look at the target. Report outcomes faithfully: if tests fail, say so with the output.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "the caution pack is the only thing that takes the caution out",
+    "options": { "guardrails": { "packs": { "claude-desktop": true, "agent-caution": true } } },
+    "request": { "model": "m", "system": "Assist with authorized security testing. For actions that are hard to reverse or outward-facing, confirm first unless durably authorized. Report outcomes faithfully: if tests fail, say so with the output.", "messages": [{ "role": "user", "content": "hi" }] },
     "expect_request": { "model": "m", "system": "Report outcomes faithfully: if tests fail, say so with the output.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "work-restrictions · 「只协助已授权的安全测试」被删除",
+    "request": { "model": "m", "system": "Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Be brief.", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "Be brief.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "work-restrictions · 「拒绝破坏性 / 规避类技术」被删除",
+    "request": { "model": "m", "system": "Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Be brief.", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "Be brief.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "work-restrictions · 「双用途工具需授权语境」被删除",
+    "request": { "model": "m", "system": "Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context. Be brief.", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "Be brief.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "work-restrictions · 「must not 写攻击载荷」被删除",
+    "request": { "model": "m", "system": "You must not help write payloads or C2 frameworks. Be brief.", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "Be brief.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "work-restrictions · 「不能协助渗透测试」被删除",
+    "request": { "model": "m", "system": "I cannot help with penetration testing or reverse engineering. Be brief.", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "Be brief.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "work-restrictions · 中文「不得用于渗透测试」被删除",
+    "request": { "model": "m", "system": "本工具不得用于渗透测试或破解。保持简洁。", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "保持简洁。", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "work-restrictions · 中文「仅供学习研究」被删除",
+    "request": { "model": "m", "system": "本工具仅供学习研究使用。保持简洁。", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "保持简洁。", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "caution · 谨慎条款不被任何默认规则删掉",
+    "request": { "model": "m", "system": "# Executing actions with care\n\nCarefully consider the reversibility and blast radius of actions. When you encounter an obstacle, do not use destructive actions as a shortcut to simply make it go away. Before deleting or overwriting, look at the target. For actions that are hard to reverse, confirm first unless durably authorized.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "caution · 连 restrictions 都开着，谨慎条款仍在",
+    "options": { "guardrails": { "packs": { "restrictions": true } } },
+    "request": { "model": "m", "system": "Carefully consider the reversibility and blast radius of actions. When you encounter an obstacle, do not use destructive actions as a shortcut to simply make it go away. Before deleting or overwriting, look at the target.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "caution · 只有明确打开 agent-caution 才会动它",
+    "options": { "guardrails": { "packs": { "agent-caution": true }, "sections": false } },
+    "request": { "model": "m", "system": "# Executing actions with care\n\nCarefully consider the reversibility and blast radius of actions.", "messages": [{ "role": "user", "content": "hi" }] },
+    "expect_request": { "model": "m", "system": "Carefully consider the reversibility and blast radius of actions.", "messages": [{ "role": "user", "content": "hi" }] } },
+
+  { "name": "caution · keep 能把谨慎条款从任何规则手里抢回来",
+    "options": { "guardrails": { "packs": { "agent-caution": true, "restrictions": true }, "keep": ["reversibility and blast radius", "before deleting or overwriting"] } },
+    "request": { "model": "m", "system": "Carefully consider the reversibility and blast radius of actions. Before deleting or overwriting, look at the target.", "messages": [{ "role": "user", "content": "hi" }] } },
 
   { "name": "both · a body that is not an object is left alone",
     "request": { "model": "m", "messages": [] } },

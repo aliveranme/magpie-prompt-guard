@@ -43,22 +43,62 @@ const WANTED = [
   /Before\s+deleting\s+or\s+overwriting,\s+look\s+at\s+the\s+target/i,
 ]
 
+// The caution an agent's own prompt carries about changing things: about the
+// owner's own work being safe to do, not about what work may be done. These
+// are never removed while a preset is on, whatever the packs catch — taking
+// them out is what makes an agent careless with the owner's repository, not
+// what makes it stop refusing.
+const CAUTION = [
+  "reversibility and blast radius",
+  "confirm first",
+  "before deleting or overwriting",
+  "reversible step",
+  "uncommitted",
+  "bypassing safety checks",
+  "as a shortcut",
+  "look at the target",
+  "publishes it",
+  "cached or indexed",
+  "report outcomes faithfully",
+]
+
 // what each target is, and what its preset turns on. The rule ids are the
 // engine's own; the test suite fails if one of them stops existing.
 const TARGETS = [
   {
     id: "claude-code",
     name: "Claude Code",
-    pack: "claude-code",
+    packs: ["work-restrictions", "claude-code"],
     source: "Claude Code, the interactive CLI",
+    // the rules written for this target's own wording; the generic
+    // work-restrictions pack is checked by cases.json and by the gone/kept
+    // lists below, which are the thing that actually has to hold
     rules: [
       "cc-authorized-testing",
       "cc-refuse-destructive",
       "cc-dual-use",
       "cc-injection-flag",
-      "cc-actions-with-care",
-      "cc-confirm-first",
-      "cc-risky-actions",
+    ],
+    keep: CAUTION,
+    // what the extraction is for: these must be gone from what is sent, and
+    // these must still be in it. `--check` and the test suite fail on either.
+    gone: [
+      "authorized security testing",
+      "Dual-use security tools",
+      "Refuse requests for destructive",
+      "attempt at prompt injection",
+    ],
+    kept: [
+      "Executing actions with care",
+      "reversibility and blast radius",
+      "check with the user before proceeding",
+      "always confirm first",
+      "Authorization stands for the scope specified",
+      "Examples of the kind of risky actions",
+      "Destructive operations: deleting files",
+      "rather than bypassing safety checks",
+      "OWASP top 10",
+      "Only use emojis",
     ],
     keepline: [/Tone and style/i, /Only use emojis/i, /short and concise/i, /OWASP top 10/i],
     what: {
@@ -69,15 +109,26 @@ const TARGETS = [
   {
     id: "claude-desktop",
     name: "Claude Desktop",
-    pack: "claude-desktop",
+    packs: ["work-restrictions", "claude-desktop"],
     source: "Claude Desktop, the Claude Code engine it ships",
     rules: [
       "ccd-authorized-testing",
       "ccd-refuse-destructive",
       "ccd-dual-use",
-      "ccd-confirm-first",
-      "ccd-publish",
-      "ccd-inspect-first",
+    ],
+    keep: CAUTION,
+    gone: [
+      "authorized security testing",
+      "Dual-use security tools",
+      "Refuse requests for destructive",
+    ],
+    kept: [
+      "confirm first unless durably authorized",
+      "approval in one context",
+      "Sending content to an external service publishes it",
+      "Before deleting or overwriting, look at the target",
+      "Report outcomes faithfully",
+      "file_path:line_number",
     ],
     keepline: [/Report outcomes faithfully/i, /file_path:line_number/, /# Environment/i],
     what: {
@@ -87,9 +138,12 @@ const TARGETS = [
   },
 ]
 
-// wanted is whether a text says something a target's rules are about
+// wanted is whether a text says something a target's rules are about. The
+// gone/kept probes are in here too, so the excerpt always carries every
+// string the invariants talk about and the test bench can show all of them.
 function wanted(s, target) {
-  return WANTED.some((re) => re.test(s)) || target.keepline.some((re) => re.test(s))
+  if (WANTED.some((re) => re.test(s)) || target.keepline.some((re) => re.test(s))) return true
+  return [...(target.gone || []), ...(target.kept || [])].some((probe) => s.includes(probe))
 }
 
 const onlyHeading = (p) => /^\s{0,3}#{1,6}\s+\S+\s*$/.test(p)
@@ -155,7 +209,10 @@ const entries = found.map(({ target, sample, meta }) => {
   const head = []
   head.push(`    id: ${lit(target.id)},`)
   head.push(`    name: ${lit(target.name)},`)
-  head.push(`    pack: ${lit(target.pack)},`)
+  head.push(`    packs: [${target.packs.map(lit).join(", ")}],`)
+  head.push(`    keep: [${target.keep.map(lit).join(", ")}],`)
+  head.push(`    gone: [${target.gone.map(lit).join(", ")}],`)
+  head.push(`    kept: [${target.kept.map(lit).join(", ")}],`)
   head.push(`    source: ${lit([target.source, meta.version, meta.entrypoint].filter(Boolean).join(" · "))},`)
   head.push(`    captured: ${lit(meta.captured || (CAPTURED[target.id] || {}).captured || "")},`)
   head.push(`    rules: [${target.rules.map(lit).join(", ")}],`)

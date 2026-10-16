@@ -25,6 +25,8 @@
       presetExtract: "Extract", presetClose: "Close", presetBench: "Open in the bench", presetApply: "Apply", presetApplied: "Applied",
       presetReport: "would be removed", presetOfExcerpt: "of this excerpt", presetNothing: "nothing — no rule fired",
       presetHits: "clauses", presetChars: "characters",
+      presetGone: "Limits taken out", presetKept: "Caution kept",
+      presetGoneList: "What must not reach the model", presetKeptList: "What must still be in it",
       presetMissed: "never fired on the capture:", presetExcerpt: "the excerpt it was extracted from", presetLeft: "what would be sent",
       presetCaveat: "The share is of this excerpt, which is the guardrail-bearing part of the prompt and not all of it; on the whole prompt it is a few percent. A preset only sets the guardrails' packs, unit and scopes — your keep list and your own rules are left as they are.",
       injLede: "What each kind of turn is read for. What a rule matches is replaced by the mask, written to the log, or turned away with an error — before the request is routed.",
@@ -64,6 +66,8 @@
       presetSource: "抓取自", presetWhat: "会剔除什么", presetRules: "规则",
       presetExtract: "提取", presetClose: "收起", presetBench: "在试验台打开", presetApply: "应用", presetApplied: "已应用",
       presetReport: "将被剔除", presetOfExcerpt: "占本片段", presetNothing: "无——没有任何规则命中",
+      presetGone: "已剔除的限制", presetKept: "已保留的谨慎条款",
+      presetGoneList: "不允许送到模型的内容", presetKeptList: "必须原样保留的内容",
       presetHits: "处命中", presetChars: "字符",
       presetMissed: "在真实抓取中未命中：", presetExcerpt: "提取所用的片段", presetLeft: "处理后实际发出的内容",
       presetCaveat: "这里的比例是相对本片段而言的——片段只截取了提示词中带围栏的那部分，对完整提示词只有几个百分点。应用预设只会写入围栏的规则包、单元和范围，你的 keep 白名单与自建规则不会被改动。",
@@ -218,21 +222,31 @@
     return obj
   }
 
+  // tidy takes out what a write left empty: an empty object is a line in
+  // plugins.json that reads as if it meant something
+  function tidy(state, kind) {
+    const s = state[kind]
+    if (!s || typeof s !== "object") return state
+    for (const k of ["packs", "scopes", "rules"]) {
+      const v = s[k]
+      if (v && typeof v === "object" && !Object.keys(v).length) delete s[k]
+    }
+    if (!Object.keys(s).length) delete state[kind]
+    return state
+  }
+
   function setScope(state, kind, scope, action) {
     const s = kindSpec(state, kind)
     if (!s.scopes || typeof s.scopes !== "object") s.scopes = {}
     s.scopes[scope] = action
-    return state
+    return tidy(state, kind)
   }
 
-  // setPack writes a pack's switch. What the engine already does by default
-  // is left out of the file, so a pack off by default is written true to
-  // turn it on — deleting the key would only put it back off.
   function setPack(state, kind, pack, on, defaultOn) {
     const s = kindSpec(state, kind)
     if (on === !!defaultOn) delete s.packs[pack]
     else s.packs[pack] = on
-    return state
+    return tidy(state, kind)
   }
 
   function ruleAt(s, id) {
@@ -248,7 +262,7 @@
       s.rules.push(r)
     }
     for (const k of Object.keys(patch)) put(r, k, patch[k])
-    return state
+    return tidy(state, kind)
   }
 
   // dropRule takes one of the owner's rules away. A pack's rule cannot go —
@@ -257,7 +271,7 @@
     const s = kindSpec(state, kind)
     s.rules = s.rules.filter((r) => !r || r.id !== id)
     if (isPack) s.rules.push({ id, on: false })
-    return state
+    return tidy(state, kind)
   }
 
   // revertRule puts a rule back to what the engine says it is: on for a
@@ -265,7 +279,7 @@
   function revertRule(state, kind, id) {
     const s = kindSpec(state, kind)
     s.rules = s.rules.filter((r) => !r || r.id !== id)
-    return state
+    return tidy(state, kind)
   }
 
   function addRule(state, kind) {
@@ -288,12 +302,14 @@
   // than replaced; writing the default back takes the key out.
   function setInjection(state, kind, key, v, untouched) {
     if (!state.injection || typeof state.injection !== "object") state.injection = {}
-    return put(state.injection, key, v, untouched)
+    put(state.injection, key, v, untouched)
+    return tidy(state, "injection")
   }
 
   function setGuard(state, kind, key, v, untouched) {
     if (!state.guardrails || typeof state.guardrails !== "object") state.guardrails = {}
-    return put(state.guardrails, key, v, untouched)
+    put(state.guardrails, key, v, untouched)
+    return tidy(state, "guardrails")
   }
 
   function setGuardScope(state, kind, scope, on) {
@@ -305,7 +321,7 @@
     const fallback = scope === "system"
     if (on === fallback) delete s.scopes[scope]
     else s.scopes[scope] = on
-    return state
+    return tidy(state, "guardrails")
   }
 
   // setKeeps writes the list, or takes the key out when the list is the
@@ -316,7 +332,7 @@
     const same = list.length === d.length && list.every((w, i) => w === d[i])
     if (same) delete state.guardrails.keep
     else state.guardrails.keep = list
-    return state
+    return tidy(state, "guardrails")
   }
 
   // ---------------------------------------------------------------------
@@ -359,36 +375,60 @@
   }
 
   function presetOn(E, state, preset) {
-    return packs(E, "guardrails", state).some((p) => p.id === preset.pack && p.on)
+    const now = packs(E, "guardrails", state)
+    return preset.packs.every((id) => now.some((p) => p.id === id && p.on))
+  }
+
+  // ruleMatches is whether a rule's own pattern is anywhere in a text: a
+  // rule that fires for nobody because a pack that runs first covered the
+  // clause is not the same as a rule whose clause is gone from the prompt
+  function ruleMatches(E, id, text) {
+    const rule = E.rulesFor("guardrails", { packs: {} }).filter((r) => r.id === id)[0]
+    if (!rule || !rule.pattern) return false
+    const flags = [...new Set("im" + (rule.flags || ""))].filter((c) => "ims".includes(c)).join("")
+    try {
+      return new RegExp(rule.pattern, flags).test(text)
+    } catch (err) {
+      return false
+    }
   }
 
   // presetRun works a preset's own rules over its own sample, whatever the
   // options say now: what the extract button reports
   function presetRun(E, preset) {
-    const opts = { guardrails: { packs: {} } }
-    opts.guardrails.packs[preset.pack] = true
+    const on = {}
+    for (const id of preset.packs) on[id] = true
+    const opts = { guardrails: { packs: on, keep: [...(E.DEFAULT_KEEP || []), ...(preset.keep || [])] } }
     const r = E.previewText(preset.sample, opts, "system")
     const hits = (r.hits || []).map((h) => ({ id: h.id, name: h.name || h.id, unit: h.unit || "", match: h.match }))
     const before = preset.sample.length
     const after = r.out.length
+    const fired = hits.map((h) => h.id)
     return {
       hits,
       before,
       after,
       removed: before - after,
       percent: before ? (before - after) / before : 0,
-      missed: preset.rules.filter((id) => !hits.some((h) => h.id === id)),
+      // only a rule whose clause is no longer in the text at all: one that
+      // another pack covered first is not a problem to show the reader
+      missed: preset.rules.filter((id) => fired.indexOf(id) < 0 && !ruleMatches(E, id, preset.sample)),
       out: r.out,
     }
   }
 
-  // presetApply turns a preset on: its pack, and the reading it was built for
+  // presetApply turns a preset on: its packs, the reading it was built for,
+  // and the caution it protects — added to whatever the owner keeps, never in
+  // place of it
   function presetApply(E, state, preset) {
-    setPack(state, "guardrails", preset.pack, true, packDefault(E, "guardrails", preset.pack))
+    for (const id of preset.packs) setPack(state, "guardrails", id, true, packDefault(E, "guardrails", id))
     setGuard(state, "guardrails", "on", true, true)
     setGuard(state, "guardrails", "unit", "sentence", "sentence")
     setGuard(state, "guardrails", "sections", true, true)
     setGuardScope(state, "guardrails", "system", true)
+    const mine = keepList(E, state)
+    const extra = (preset.keep || []).filter((k) => mine.indexOf(k) < 0)
+    if (extra.length) setKeeps(state, "guardrails", [...mine, ...extra], E.DEFAULT_KEEP)
     return state
   }
 

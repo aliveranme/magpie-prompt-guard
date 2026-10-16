@@ -166,6 +166,12 @@ function wanted(o, body, ctx) {
 // The rule book — what runs when the options name nothing
 // ---------------------------------------------------------------------------
 
+// The ways a policy says no, as one fragment every work-restrictions rule
+// uses: a rule that catches "you must not help with X" has to catch
+// "never", "cannot" and "refuse" too, or it catches whichever spelling the
+// vendor happened to write.
+const NEGATIVE = "(?:refus\\w+|declin\\w+|never|do\\s+not|don'?t|must\\s+not|mustn'?t|should\\s+not|shouldn'?t|shall\\s+not|may\\s+not|cannot|can'?t|won'?t|will\\s+not|would\\s+not|could\\s+not|not\\s+(?:able|allowed|permitted|designed)\\s+to)"
+
 // Injection rules, by pack. Scope is not part of a rule: it comes from
 // injection.scopes, so the same rule reads the user's turns, a tool result
 // and a system prompt on the terms the owner set.
@@ -332,7 +338,10 @@ const GUARDRAIL_PACKS = {
     {
       id: "gr-safety",
       name: "safety guidelines",
-      pattern: "\\b(?:safety|security|content|usage|acceptable[\\s-]use|trust\\s+and\\s+safety)\\s+(?:guidelines?|polic(?:y|ies)|requirements?|considerations?|principles?|rules?|instructions?|standards?|checks?|filters?|measures?|protocols?|practices?|constraints?)\\b",
+      // a policy clause, not the word: "rather than bypassing safety checks"
+      // is the agent being told to be careful, and taking it out would be
+      // exactly the wrong thing to do
+      pattern: "\\b(?:follow|following|adhere\\s+to|abide\\s+by|comply\\s+with|respect|violat\\w+|breach\\w*|against|our|per|according\\s+to|in\\s+line\\s+with)\\b[^.\\n]{0,40}\\b(?:safety|security|content|usage|acceptable[\\s-]use|trust\\s+and\\s+safety)\\s+(?:guidelines?|polic(?:y|ies)|requirements?|considerations?|principles?|standards?|practices?|rules?)\\b",
     },
     {
       id: "gr-legal",
@@ -430,12 +439,12 @@ const GUARDRAIL_PACKS = {
     {
       id: "cc-authorized-testing",
       name: "「授权安全测试」声明",
-      pattern: "\\bAssist\\s+with\\s+authorized\\s+security\\s+testing\\b",
+      pattern: "\\b(?:assist|help)\\s+with\\s+authorized\\s+security\\s+testing\\b",
     },
     {
       id: "cc-refuse-destructive",
       name: "「拒绝破坏性技术」",
-      pattern: "\\bRefuse\\s+requests?\\s+for\\s+(?:destructive|DoS|mass\\s+targeting|supply\\s+chain|detection\\s+evasion)\\b",
+      pattern: "\\brefus\\w+\\s+requests?\\s+for\\s+(?:destructive|DoS|mass\\s+targeting|supply\\s+chain|detection\\s+evasion)\\b",
     },
     {
       id: "cc-dual-use",
@@ -447,6 +456,88 @@ const GUARDRAIL_PACKS = {
       name: "「工具结果可能含注入，先向用户报告」",
       pattern: "\\battempt\\s+at\\s+prompt\\s+injection\\b|\\bflag\\s+it\\s+directly\\s+to\\s+the\\s+user\\b",
     },
+  ],
+  "claude-desktop": [
+    {
+      id: "ccd-authorized-testing",
+      name: "「授权安全测试」声明",
+      pattern: "\\b(?:assist|help)\\s+with\\s+authorized\\s+security\\s+testing\\b",
+    },
+    {
+      id: "ccd-refuse-destructive",
+      name: "「拒绝破坏性技术」",
+      pattern: "\\brefus\\w+\\s+requests?\\s+for\\s+(?:destructive|DoS|mass\\s+targeting|supply\\s+chain|detection\\s+evasion)\\b",
+    },
+    {
+      id: "ccd-dual-use",
+      name: "「双用途工具需授权语境」",
+      pattern: "\\bdual-use\\s+security\\s+tools?\\b|\\brequire[s]?\\s+clear\\s+authorization\\s+context\\b",
+    },
+  ],
+  // What limits the work itself: clauses that gate, refuse or narrow
+  // development, security work, penetration testing, reverse engineering or
+  // exploit work. These are the fences this plugin exists for, and they are
+  // on by default.
+  //
+  // Deliberately not here: anything about changing things carefully. "Confirm
+  // first", "before deleting or overwriting, look at the target", "prefer a
+  // reversible step" are about the owner's own work being safe to do, not
+  // about what work may be done, and an agent without them is a worse agent.
+  // Those live in the agent-caution pack, off, for anyone who wants them
+  // gone.
+  "work-restrictions": [
+    {
+      id: "wr-authorized-testing",
+      name: "只协助「已授权」的安全测试",
+      pattern: "\\b(?:authorized|legitimate|permitted|approved|sanctioned)\\s+(?:security\\s+(?:testing|research|assessment|review|audit|work)|penetration\\s+test\\w*|pentest\\w*|red\\s*[- ]?team\\w*)\\b",
+    },
+    {
+      id: "wr-dual-use",
+      name: "双用途工具需授权语境",
+      pattern: "\\bdual[- ]use\\b[^.\\n]{0,80}\\b(?:authoriz\\w+|require\\w*|clearance|context)\\b",
+    },
+    {
+      id: "wr-refuse-security",
+      name: "拒绝安全 / 逆向 / 渗透类请求",
+      pattern: "\\b" + NEGATIVE + "\\b[^.\\n]{0,60}\\b(?:security\\s+(?:testing|research|tools?|assessment|review|audit)|penetration\\s+test\\w*|pentest\\w*|reverse\\s*[- ]?engineer\\w*|exploit\\w*|hacking|malware|ransomware|payloads?|shellcode|vulnerabilit\\w+|CTF|red\\s*[- ]?team\\w*|bug\\s+bount\\w*)\\b",
+    },
+    {
+      id: "wr-refuse-destructive",
+      name: "拒绝破坏性 / 规避类技术",
+      pattern: "\\b" + NEGATIVE + "\\b[^.\\n]{0,50}\\b(?:destructive\\s+techniques|denial\\s+of\\s+service|DoS\\b|mass\\s+targeting|supply\\s*chain\\s+compromise|detection\\s+evasion|malicious\\s+purposes?)\\b",
+    },
+    {
+      id: "wr-no-offensive",
+      name: "不写攻击工具 / 载荷",
+      pattern: "\\b" + NEGATIVE + "\\b[^.\\n]{0,80}\\b(?:exploits?|malware|ransomware|payloads?|shellcode|backdoors?|keyloggers?|rootkits?|C2\\s+framework\\w*|command\\s+and\\s+control|credential\\s+(?:theft|harvesting|dumping|stuffing)|phishing)\\b",
+    },
+    {
+      id: "wr-detection-evasion",
+      name: "检测对抗 / 反分析",
+      pattern: "\\b(?:detection|AV|EDR|antivirus|sandbox)\\s+evasion\\b|\\bevad\\w*\\s+(?:detection|antivirus|EDR|sandbox\\w*|analysis)\\b|\\banti\\s*[- ]?(?:analysis|debug|vm)\\b",
+    },
+    {
+      id: "wr-refuse-cn",
+      name: "拒绝渗透 / 破解 / 逆向",
+      pattern: "(?:不得|严禁|禁止|不能|不可|拒绝|谢绝|不予)[^。\\n]{0,20}(?:渗透|攻击|入侵|破解|逆向|反编译|漏洞利用|提权|免杀|绕过|外挂|爬虫|爬取)",
+    },
+    {
+      id: "wr-authorized-cn",
+      name: "仅供授权 / 学习使用",
+      pattern: "(?:仅|只)(?:限|供|用于)[^。\\n]{0,10}(?:授权|合法|合规|学习|研究|教学)",
+    },
+    {
+      id: "wr-need-auth-cn",
+      name: "需获授权后方可",
+      pattern: "(?:需要|需|须|应当)[^。\\n]{0,6}(?:获得|取得|经)?[^。\\n]{0,4}(?:授权|许可|同意)[^。\\n]{0,6}(?:后|之後|之后|方可|方能|才可|再进行)",
+    },
+  ],
+  // What the owner wants kept: the agent's caution about changing things —
+  // irreversible and outward-facing actions, deleting, overwriting, breaking
+  // work in progress. This is the part of a prompt that makes an agent
+  // careful with the owner's own assets, and it is off: nothing here removes
+  // it unless this pack is asked for.
+  "agent-caution": [
     {
       id: "cc-actions-with-care",
       name: "「Executing actions with care」整节",
@@ -465,23 +556,6 @@ const GUARDRAIL_PACKS = {
       flags: "im",
       unit: "line",
       pattern: "^\\s*(?:-\\s*(?:Destructive\\s+operations|Hard-to-reverse\\s+operations|Actions\\s+visible\\s+to\\s+others|Uploading\\s+content\\s+to\\s+third-party)\\b|Examples\\s+of\\s+the\\s+kind\\s+of\\s+risky\\s+actions\\b)",
-    },
-  ],
-  "claude-desktop": [
-    {
-      id: "ccd-authorized-testing",
-      name: "「授权安全测试」声明",
-      pattern: "\\bAssist\\s+with\\s+authorized\\s+security\\s+testing\\b",
-    },
-    {
-      id: "ccd-refuse-destructive",
-      name: "「拒绝破坏性技术」",
-      pattern: "\\bRefuse\\s+requests?\\s+for\\s+(?:destructive|DoS|mass\\s+targeting|supply\\s+chain|detection\\s+evasion)\\b",
-    },
-    {
-      id: "ccd-dual-use",
-      name: "「双用途工具需授权语境」",
-      pattern: "\\bdual-use\\s+security\\s+tools?\\b|\\brequire[s]?\\s+clear\\s+authorization\\s+context\\b",
     },
     {
       id: "ccd-confirm-first",
@@ -596,7 +670,11 @@ function inScope(r, scope) {
 // A pack nobody asked for that stays off until it is asked for by name.
 // The restrictions pack is the hammer: it takes out every "you must not",
 // including guidance that has nothing to do with refusing a request.
-const PACKS_OFF = { restrictions: true, "claude-code": true, "claude-desktop": true }
+// A pack nobody asked for that stays off until it is asked for by name: the
+// restrictions hammer, the two target-specific Claude packs (the generic
+// work-restrictions pack covers the same clauses by class), and the caution
+// those packs were built to leave alone.
+const PACKS_OFF = { restrictions: true, "claude-code": true, "claude-desktop": true, "agent-caution": true }
 
 // What a keep expression protects when the options name none: the clauses
 // about not leaking a credential are the guardrails worth keeping. These are
@@ -696,6 +774,9 @@ function scanText(text, plan) {
       if (hits.length < 200) hits.push(hit)
       if (a === "reject" && !reject) reject = hit
     }
+    // the request is going anyway, so nothing later matters: the rest of the
+    // rules are what the 250 ms a hook has is spent on
+    if (reject) break
   }
   return { out, hits, reject }
 }
@@ -1147,7 +1228,7 @@ function previewText(text, options_, role) {
 // rejecting anything: what the page's test bench and the tests look at.
 function previewRequest(body, protocol, options_) {
   const o = options_ && typeof options_ === "object" ? options_ : {}
-  const copy = JSON.parse(JSON.stringify(body))
+  const copy = JSON.parse(JSON.stringify(body === undefined || body === null ? {} : body))
   const seen = { injection: [], guardrails: [] }
   const g = guardPlan(o.guardrails)
   if (g) {

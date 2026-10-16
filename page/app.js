@@ -516,6 +516,10 @@
 
       const r = V.presetRun(E, p)
       card.append(el("p", "pre-sum", V.presetSummary(E, p, t, lang)))
+      const tags = el("p", "pre-tags")
+      tags.append(el("span", "pre-tag gone", t.presetGone + " " + (p.gone || []).length))
+      tags.append(el("span", "pre-tag kept", t.presetKept + " " + (p.kept || []).length))
+      card.append(tags)
       if (r.missed.length) card.append(el("p", "note bad", t.presetMissed + " " + r.missed.join(", ")))
 
       const detail = el("div", "pre-detail")
@@ -529,6 +533,16 @@
         hits.append(line)
       }
       detail.append(el("div", "sec-h", t.presetRules), hits)
+      const probes = el("div", "probes")
+      for (const [title, list, cls] of [[t.presetGoneList, p.gone || [], "gone"], [t.presetKeptList, p.kept || [], "kept"]]) {
+        const group = el("div", "probe-group")
+        group.append(el("div", "sec-h", title))
+        const row = el("div", "probe-row")
+        for (const s of list) row.append(el("code", "probe " + cls, s))
+        group.append(row)
+        probes.append(group)
+      }
+      detail.append(probes)
       detail.append(el("div", "sec-h", t.presetLeft))
       detail.append(el("pre", "out", r.out))
       card.append(detail)
