@@ -84,7 +84,7 @@ function onRequest(body, ctx) {
       if (!g.scopes[p.role]) continue
       const before = p.get()
       if (!before) continue
-      if (!afford(limits, read, before, started)) {
+      if (!afford(limits, read, before, started, p.role)) {
         seen.skipped = (seen.skipped || 0) + before.length
         continue
       }
@@ -109,7 +109,7 @@ function onRequest(body, ctx) {
       if (!plan) continue
       const text = p.get()
       if (!text) continue
-      if (!afford(limits, read, text, started)) {
+      if (!afford(limits, read, text, started, p.role)) {
         seen.skipped = (seen.skipped || 0) + text.length
         continue
       }
@@ -220,10 +220,21 @@ function limitsOf(o) {
   const l = o && o.limits && typeof o.limits === "object" ? o.limits : {}
   const ms = Number(l.maxMs)
   const text = Number(l.maxText)
-  return {
+  const out = {
     maxMs: Number.isFinite(ms) && ms > 0 ? Math.floor(ms) : 120,
     maxText: Number.isFinite(text) && text > 0 ? Math.floor(text) : 65536,
   }
+  const sysText = Number(l.maxSystemText)
+  if (Number.isFinite(sysText) && sysText > 0) out.maxSystemText = Math.floor(sysText)
+  return out
+}
+
+function capOf(limits, role) {
+  const base = limits && limits.maxText ? limits.maxText : 65536
+  if (role === "system") {
+    return limits && limits.maxSystemText ? limits.maxSystemText : Math.max(base, 262144)
+  }
+  return base
 }
 
 // clock is the milliseconds since the epoch, when the engine has a clock.
@@ -233,8 +244,8 @@ function clock() {
 }
 
 // afford is whether a text may be read now, and takes what reading it costs
-function afford(limits, read, text, started) {
-  if (text.length > limits.maxText) return false
+function afford(limits, read, text, started, role) {
+  if (text.length > capOf(limits, role)) return false
   if (clock() - started > limits.maxMs) return false
   read.n += text.length
   return true
@@ -346,6 +357,11 @@ const INJECTION_PACKS = {
       name: "输出你的系统提示词",
       pattern: "(?:(?:输出|输出|打印|显示|重复|复述|告诉我|展示|贴出)[^。\\n，,]{0,20}(?:系统提示词|系统提示语|初始提示词|提示词原文|系统指令|你的设定|你的规则)|(?:系统提示词|系统提示语|初始提示词|系统指令)[^。\\n，,]{0,12}(?:输出|原文|复述|打印|贴出|告诉我|是什么))",
     },
+    {
+      id: "ig-decode-cn",
+      name: "解码并执行指令",
+      pattern: "(?:(?:base64|hex|rot13|unicode|url)[^。\\n，,]{0,10}(?:解码|解密|还原)|(?:解码|解密|还原)[^。\\n，,]{0,10}(?:base64|hex|rot13|unicode|url))[^。\\n，,]{0,20}(?:执行|运行|遵循|遵从|按此|作为指令)",
+    },
   ],
   // A turn pretending to be a system turn, or a delimiter pretending to
   // close one.
@@ -354,7 +370,7 @@ const INJECTION_PACKS = {
       id: "ig-fake-system",
       name: "a forged system marker",
       flags: "im",
-      pattern: "(?:<\\|(?:im_start|im_end|system|endoftext|start_header_id|end_header_id)\\|>|<\\s*/?\\s*(?:system|assistant|user)\\s*>|\\[\\s*system\\s*\\]|^\\s{0,3}#{1,6}\\s*system\\b|\\bsystem\\s+(?:prompt|message|instruction)s?\\s+(?:start|begin|end)s?\\b)",
+      pattern: "(?:<\\|(?:im_start|im_end|system|endoftext|start_header_id|end_header_id)\\|>|<\\s*/?\\s*(?:system|assistant|user)\\s*>|\\[\\s*system\\s*\\]|<<\\s*SYS\\s*>>|\\[\\s*INST\\s*\\]|\\[\\s*DEVELOPER[ _-]?MODE\\s*\\]|^\\s{0,3}#{1,6}\\s*(?:system|developer)\\b|\\bsystem\\s+(?:prompt|message|instruction)s?\\s+(?:start|begin|end)s?\\b)",
     },
     {
       id: "ig-role-marker",
@@ -897,6 +913,9 @@ function scanText(text, plan) {
   const hits = []
   if (typeof text !== "string" || !text) return { out: text, hits, reject: null }
   let out = text
+  if (/[\u200B-\u200D\u200E\u200F\uFEFF]/.test(out)) {
+    out = out.replace(/[\u200B-\u200D\u200E\u200F\uFEFF]/g, "")
+  }
   let reject = null
   for (const rule of plan.rules) {
     const a = rule.action
@@ -1384,7 +1403,7 @@ function previewRequest(body, protocol, options_) {
       if (!g.scopes[p.role]) continue
       const before = p.get()
       if (!before) continue
-      if (before.length > limits.maxText) {
+      if (before.length > capOf(limits, p.role)) {
         seen.skipped = (seen.skipped || 0) + before.length
         continue
       }
@@ -1403,7 +1422,7 @@ function previewRequest(body, protocol, options_) {
       if (!plan) continue
       const text = p.get()
       if (!text) continue
-      if (text.length > limits.maxText) {
+      if (text.length > capOf(limits, p.role)) {
         seen.skipped = (seen.skipped || 0) + text.length
         continue
       }

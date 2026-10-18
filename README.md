@@ -71,7 +71,8 @@ later arrives with an update rather than being frozen into your file.
   "models": [],                 // when named, only models with one of these prefixes
   "limits": {
     "maxMs": 120,               // how long the hook may spend reading a request
-    "maxText": 65536            // the largest single text it will read at all
+    "maxText": 65536,           // the largest single turn text it will read at all
+    "maxSystemText": 262144     // largest system prompt it will read (defaults to 256 KB)
   },
 
   "injection": {

@@ -18,12 +18,18 @@ const here = import.meta.dir ?? dirname(fileURLToPath(import.meta.url))
 const root = join(here, "..")
 const page = join(root, "page")
 
-const pwPath = process.argv[2] || process.env.PLAYWRIGHT || "playwright"
+const explicitPw = process.argv[2] || process.env.PLAYWRIGHT
+const pwPath = explicitPw || "playwright"
 const require = createRequire(import.meta.url)
 let chromium
 try {
   chromium = require(pwPath).chromium
 } catch (err) {
+  if (!explicitPw) {
+    console.log(`playwright not found: ${err.message}`)
+    console.log("skipping browser smoke test (install playwright or pass path: node scripts/page-smoke.mjs C:/path/to/playwright)")
+    process.exit(0)
+  }
   console.error(`no playwright at ${pwPath}: ${err.message}`)
   console.error("pass a path: node scripts/page-smoke.mjs C:/path/to/playwright")
   process.exit(2)
