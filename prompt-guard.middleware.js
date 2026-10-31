@@ -572,7 +572,10 @@ export const GUARDRAIL_PACKS = {
   // The clauses an agent's own prompt uses to make a model refuse work on
   // security. These come from the prompts themselves: see reference/ and
   // scripts/extract-guardrails.mjs, which captures them from the installed
-  // engine and holds these patterns to what it finds.
+  // engine and holds these patterns to what it finds. The engine sends the
+  // full prompt for a model on Anthropic's roster and a simple one for
+  // everything else, and a rule is held to both forms — the injection-flag
+  // line below is one the full form carries and the simple one does not.
   //
   // Two packs, each self-contained for its target, both off until asked
   // for: the clauses are the agent's, and removing them is a decision.
@@ -613,6 +616,11 @@ export const GUARDRAIL_PACKS = {
       id: "ccd-dual-use",
       name: "「双用途工具需授权语境」",
       pattern: "\\bdual-use\\s+security\\s+tools?\\b|\\brequire[s]?\\s+clear\\s+authorization\\s+context\\b",
+    },
+    {
+      id: "ccd-injection-flag",
+      name: "「工具结果可能含注入，先向用户报告」",
+      pattern: "\\battempt\\s+at\\s+prompt\\s+injection\\b|\\bflag\\s+it\\s+directly\\s+to\\s+the\\s+user\\b",
     },
   ],
   // What limits the work itself: clauses that gate, refuse or narrow

@@ -43,7 +43,7 @@
       benchTimeHint: "This preview does not simulate maxMs. The live hook may stop earlier; check its per-request report for the actual result.",
       benchNotRead: "This text exceeds its size cap. The gateway skips it, so no transformed preview is shown.",
       presetMissed: "never fired on the capture:", presetExcerpt: "the excerpt it was extracted from", presetLeft: "what would be sent",
-      presetCaveat: "The share is of this excerpt, which is the guardrail-bearing part of the prompt and not all of it; on the whole prompt it is a few percent. A preset only sets the guardrails' packs, unit and scopes — your keep list and your own rules are left as they are.",
+      presetCaveat: "The share is of this excerpt, which is the guardrail-bearing part of the prompt and not all of it; on the whole prompt it is 2–8%, because the fence is a couple of paragraphs out of a long one. The excerpt shown is the form the engine sends on its own; the rules are held to both forms. A preset only sets the guardrails' packs, unit and scopes — your keep list and your own rules are left as they are.",
       injLede: "What each kind of turn is read for. What a rule matches is replaced by the mask, written to the log, or turned away with an error — before the request is routed.",
       scopes: "Scopes",
       scopeUser: "User turns", scopeTool: "Tool results", scopeSystem: "System prompt", scopeAssistant: "Assistant turns",
@@ -100,7 +100,7 @@
       benchNotRead: "该文本超过大小上限。网关会跳过它，因此不显示改写预览。",
       presetHits: "处命中", presetChars: "字符",
       presetMissed: "在真实抓取中未命中：", presetExcerpt: "提取所用的片段", presetLeft: "处理后实际发出的内容",
-      presetCaveat: "这里的比例是相对本片段而言的——片段只截取了提示词中带围栏的那部分，对完整提示词只有几个百分点。应用预设只会写入围栏的规则包、单元和范围，你的 keep 白名单与自建规则不会被改动。",
+      presetCaveat: "这里的比例是相对本片段而言的——片段只截取了提示词中带围栏的那部分，对整份提示词是 2–8%：围栏只是长提示词里的两段。展示的是本机引擎默认发出的那一形态，规则对两种形态都校验。应用预设只会写入围栏的规则包、单元和范围，你的 keep 白名单与自建规则不会被改动。",
       injLede: "各类文本何时被读取。规则命中的内容会被替换、仅记入日志，或直接以错误拒绝——都在请求路由之前完成。",
       scopes: "作用范围",
       scopeUser: "用户消息", scopeTool: "工具结果", scopeSystem: "系统提示词", scopeAssistant: "助手回复",
@@ -505,11 +505,20 @@
       after,
       removed: before - after,
       percent: before ? (before - after) / before : 0,
-      // only a rule whose clause is no longer in the text at all: one that
-      // another pack covered first is not a problem to show the reader
-      missed: preset.rules.filter((id) => fired.indexOf(id) < 0 && !ruleMatches(E, id, preset.sample)),
+      // only a rule whose clause is in no form of the captured prompt at all:
+      // one that another pack covered first is not a problem to show the
+      // reader, and a clause the lean form of the prompt does not carry is
+      // still the rule's clause while the full one has it
+      missed: preset.rules.filter((id) => fired.indexOf(id) < 0 && !formsOf(preset).some((f) => ruleMatches(E, id, f.sample))),
       out: r.out,
     }
+  }
+
+  // formsOf is the forms of the prompt a preset was extracted from: the ones
+  // the capture carried, or the one excerpt a preset carried over from an
+  // older capture has
+  function formsOf(preset) {
+    return Array.isArray(preset.variants) && preset.variants.length ? preset.variants : [{ id: preset.id, sample: preset.sample }]
   }
 
   // presetApply turns a preset on: its packs, the reading it was built for,
@@ -544,7 +553,7 @@
     limits, traceOn, setTrace, setLimit, benchSize, benchRequest, MOEJS_MS_PER_KB,
     setScope, setPack, setRule, dropRule, revertRule, addRule, setEnabled,
     setInjection, setGuard, setGuardScope, setKeeps,
-    presets, presetOn, presetRun, presetApply, presetSummary,
+    presets, presetOn, presetRun, presetApply, presetSummary, formsOf,
     bench,
   }
 })()

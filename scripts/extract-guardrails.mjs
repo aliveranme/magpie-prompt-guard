@@ -12,6 +12,14 @@
 // user's), and the body it posts is kept. Nothing leaves the machine, no
 // account is used, and the reply the stand-in gives back is thrown away.
 //
+// The engine ships two forms of its prompt and picks between them per
+// model: the full one for a model on Anthropic's roster, the simple one for
+// everything else — CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT=0 / 1 is the switch.
+// Which form a machine gets therefore depends on the model it is pointed
+// at, and a capture that took whatever came out would change shape with a
+// model switch. So every form is asked for by name, and a run with no flag
+// at all records which one this engine sends on its own.
+//
 // The capture lands in reference/ — which is not in the repository, because
 // it is somebody else's prompt text — and then page/samples.js is written
 // from it by scripts/make-samples.mjs. Only the derived patterns and the
@@ -46,11 +54,14 @@ const home = process.env.USERPROFILE || process.env.HOME || ""
 const localApp = process.env.LOCALAPPDATA || ""
 
 // Claude Desktop keeps the Claude Code it runs in a versioned folder of its
-// own data directory; the newest one is the one it uses now
+// own data directory; the newest one is the one it uses now. Inside, the
+// engine is either the binary itself (Windows, older macOS builds) or a
+// macOS app bundle with the binary under Contents/MacOS.
 function desktopEngine() {
   const bases = [
     join(localApp, "Claude-3p", "claude-code"),
     join(localApp, "Claude", "claude-code"),
+    join(home, "Library", "Application Support", "Claude-3p", "claude-code"),
     join(home, "Library", "Application Support", "Claude", "claude-code"),
     join(home, ".config", "Claude", "claude-code"),
   ]
@@ -63,8 +74,10 @@ function desktopEngine() {
       for (const inner of readdirSync(dir)) {
         for (const name of ["claude.exe", "claude"]) {
           const exe = join(dir, inner, name)
-          if (existsSync(exe)) found.push({ exe, version })
+          if (existsSync(exe) && statSync(exe).isFile()) found.push({ exe, version })
         }
+        const bundled = join(dir, inner, "claude.app", "Contents", "MacOS", "claude")
+        if (existsSync(bundled)) found.push({ exe: bundled, version })
       }
     }
   }
@@ -91,10 +104,19 @@ function cliEngine() {
   return first && existsSync(first) ? first : null
 }
 
+// The forms one engine's prompt comes in. The first run asks for nothing,
+// so it is the form this machine's model gets; the other two name the switch
+// so a model change cannot silently capture a different shape.
+const FORMS = [
+  { id: "default", env: {}, what: "the form this engine sends on its own" },
+  { id: "full", env: { CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT: "0" }, what: "the full form" },
+  { id: "simple", env: { CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT: "1" }, what: "the simple form" },
+]
+
 const TARGETS = [
   { id: "claude-code", name: "Claude Code", engine: engineArg || cliEngine(), entrypoint: "" },
   { id: "claude-desktop", name: "Claude Desktop", engine: engineArg || desktopEngine(), entrypoint: "claude-desktop-3p" },
-].filter((t) => t.engine)
+]
 
 // ---------------------------------------------------------------------------
 // the stand-in upstream
@@ -128,13 +150,14 @@ function listen(dir) {
 // one capture
 // ---------------------------------------------------------------------------
 
-function settingsFile(port, entrypoint) {
+function settingsFile(port, entrypoint, extra) {
   const env = {
     ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
     ANTHROPIC_API_KEY: "sk-local-capture",
     ANTHROPIC_AUTH_TOKEN: "sk-local-capture",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     CLAUDE_CODE_ENABLE_TELEMETRY: "0",
+    ...extra,
   }
   if (entrypoint) env.CLAUDE_CODE_ENTRYPOINT = entrypoint
   const file = join(tmpdir(), `magpie-prompt-guard-${port}.json`)
@@ -142,11 +165,18 @@ function settingsFile(port, entrypoint) {
   return file
 }
 
-async function capture(target) {
-  const dir = join(refDir, ".capture", target.id)
+// captureFileName is where a form lands: the one the engine sends on its own
+// keeps the plain name — what make-samples and the page have always read —
+// and a named form goes beside it
+function captureFileName(target, form) {
+  return form.id === "default" ? `${target.id}.system.txt` : `${target.id}.system.${form.id}.txt`
+}
+
+async function capture(target, form) {
+  const dir = join(refDir, ".capture", `${target.id}.${form.id}`)
   rmSync(dir, { recursive: true, force: true })
   const { server, port } = await listen(dir)
-  const settings = settingsFile(port, target.entrypoint)
+  const settings = settingsFile(port, target.entrypoint, form.env)
   const args = ["--settings", settings, "-p", "say ok"]
   const child = spawn(target.engine, args, {
     cwd: tmpdir(),
@@ -174,7 +204,7 @@ async function capture(target) {
     } catch (err) { /* not a request we can read */ }
   }
   if (!system) {
-    console.error(`  ${target.id}: nothing captured (exit ${code})`)
+    console.error(`  ${target.id} · ${form.id}: nothing captured (exit ${code})`)
     const first = files.length ? readFileSync(join(dir, files[0]), "utf8").slice(0, 200) : ""
     if (first) console.error("    first body: " + first.replace(/\s+/g, " ").slice(0, 160))
     return null
@@ -183,24 +213,45 @@ async function capture(target) {
   const header = blocks[0] || ""
   const version = (header.match(/cc_version=([\w.]+)/) || [])[1] || ""
   const entrypoint = (header.match(/cc_entrypoint=([\w-]+)/) || [])[1] || ""
-  writeFileSync(join(refDir, `${target.id}.system.txt`), blocks.join("\n\n===== BLOCK =====\n\n"))
-  writeFileSync(join(refDir, `${target.id}.json`), JSON.stringify({
-    name: target.name, version, entrypoint, captured: new Date().toISOString().slice(0, 10), engine: target.engine,
-  }, null, 2) + "\n")
-  const chars = blocks.join("").length
-  console.log(`  ${target.id}: ${chars} chars of system prompt${version ? " · " + version : ""}${entrypoint ? " · " + entrypoint : ""}`)
-  return target.id
+  const text = blocks.join("\n\n===== BLOCK =====\n\n")
+  const file = captureFileName(target, form)
+  writeFileSync(join(refDir, file), text)
+  console.log(`  ${target.id} · ${form.id}: ${blocks.join("").length} chars of system prompt${version ? " · " + version : ""}${entrypoint ? " · " + entrypoint : ""}`)
+  return { form: form.id, file, text, chars: blocks.join("").length, version, entrypoint }
 }
 
 // ---------------------------------------------------------------------------
 // checking the packs against a capture
 // ---------------------------------------------------------------------------
 
-// ruleMatches is whether a rule's own pattern is still somewhere in the
-// capture — the invariant that matters when the vendor rewrites a prompt.
-// Which rule actually removes a clause is another question: a clause the
-// generic packs already cover is removed by them, and the pack's own rule
-// for it never runs.
+// captureForms is every distinct form of a target's prompt that is on disk:
+// the one it sends on its own and the two named forms, with identical copies
+// folded together — an engine that ignores the switch has one form, not two.
+function captureForms(id) {
+  const files = [`${id}.system.txt`, `${id}.system.full.txt`, `${id}.system.simple.txt`].map((f) => join(refDir, f))
+  const forms = []
+  const seen = new Set()
+  for (const file of files) {
+    if (!existsSync(file)) continue
+    const body = readFileSync(file, "utf8").split("===== BLOCK =====").slice(1).join("===== BLOCK =====")
+    if (!body.trim() || seen.has(body)) continue
+    seen.add(body)
+    const form = file.endsWith(".full.txt") ? "the full form" : file.endsWith(".simple.txt") ? "the simple form" : "the form this engine sends"
+    forms.push({ file, form, body })
+  }
+  return forms
+}
+
+function captureMeta(id) {
+  const file = join(refDir, `${id}.json`)
+  return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {}
+}
+
+// ruleMatches is whether a rule's own pattern is still somewhere in a form
+// of the capture — the invariant that matters when the vendor rewrites a
+// prompt. Which rule actually removes a clause is another question: a clause
+// the generic packs already cover is removed by them, and the pack's own
+// rule for it never runs.
 function ruleMatches(rule, text) {
   const flags = [...new Set("im" + (rule.flags || ""))].filter((c) => "ims".includes(c)).join("")
   try {
@@ -217,49 +268,69 @@ async function checkPacks() {
     : []
   let bad = 0
   for (const preset of samples) {
-    const file = join(refDir, `${preset.id}.system.txt`)
-    if (!existsSync(file)) continue
-    const body = readFileSync(file, "utf8").split("===== BLOCK =====").slice(1).join("===== BLOCK =====")
+    const forms = captureForms(preset.id)
+    if (!forms.length) {
+      console.log(`${preset.id}: nothing captured on this machine — not checked`)
+      continue
+    }
+    const meta = captureMeta(preset.id)
+    const version = meta.version ? " · " + meta.version : ""
     const options = { guardrails: { packs: {}, keep: [...(mod.DEFAULT_KEEP || []), ...(preset.keep || [])] } }
     for (const id of preset.packs) options.guardrails.packs[id] = true
-    const r = mod.previewText(body, options, "system")
-    const fired = new Set(r.hits.map((h) => h.id))
-    const percent = ((body.length - r.out.length) / body.length) * 100
-    console.log(`${preset.id}: ${fired.size} rule(s) removed something, ${percent.toFixed(1)}% of the prompt gone, ${r.out.length} chars left`)
-    for (const h of r.hits) console.log(`   ${h.id}  ${JSON.stringify(String(h.match).slice(0, 70))}`)
 
-    // the two invariants this whole thing exists for: what limits the work is
-    // gone, and what makes the agent careful is still there
-    for (const s of preset.gone || []) {
-      if (r.out.includes(s)) {
-        bad++
-        console.log(`   LIMIT LEFT: ${JSON.stringify(s)} is still in what would be sent`)
+    const fired = new Set()
+    const probes = [...(preset.gone || []), ...(preset.kept || [])]
+    const seenProbe = new Set()
+    for (const form of forms) {
+      const r = mod.previewText(form.body, options, "system")
+      for (const h of r.hits) fired.add(h.id)
+      const percent = ((form.body.length - r.out.length) / form.body.length) * 100
+      console.log(`${preset.id} · ${form.form}${version}: ${r.hits.length} rule(s) removed something, ${percent.toFixed(1)}% of the prompt gone, ${r.out.length} chars left of ${form.body.length}`)
+      for (const h of r.hits) console.log(`   ${h.id}  ${JSON.stringify(String(h.match).slice(0, 70))}`)
+
+      // the two invariants this whole thing exists for: what limits the work
+      // is gone, and what makes the agent careful is still there — each held
+      // to the form it is actually in
+      for (const s of preset.gone || []) {
+        if (!form.body.includes(s)) continue
+        seenProbe.add(s)
+        if (r.out.includes(s)) {
+          bad++
+          console.log(`   LIMIT LEFT in ${form.form}: ${JSON.stringify(s)} is still in what would be sent`)
+        }
+      }
+      for (const s of preset.kept || []) {
+        if (!form.body.includes(s)) continue
+        seenProbe.add(s)
+        if (!r.out.includes(s)) {
+          bad++
+          console.log(`   CAUTION LOST in ${form.form}: ${JSON.stringify(s)} was removed — the owner wants it kept`)
+        }
       }
     }
-    for (const s of preset.kept || []) {
-      if (!r.out.includes(s)) {
-        bad++
-        console.log(`   CAUTION LOST: ${JSON.stringify(s)} was removed — the owner wants it kept`)
-      }
+    for (const s of probes) {
+      if (seenProbe.has(s)) continue
+      bad++
+      console.log(`   STALE PROBE: ${JSON.stringify(s)} is in no form of the prompt any more`)
     }
 
     const book = mod.rulesFor("guardrails", { packs: {} })
-    const quiet = []
     for (const id of preset.rules) {
-      if (fired.has(id)) continue
       const rule = book.find((x) => x.id === id)
       if (!rule) {
         bad++
         console.log(`   GONE: ${id} is not in the engine's book`)
         continue
       }
-      if (ruleMatches(rule, body)) quiet.push(id)
-      else {
+      const where = forms.filter((f) => ruleMatches(rule, f.body)).map((f) => f.form)
+      if (!where.length) {
         bad++
-        console.log(`   STALE: ${id} no longer matches the capture — the prompt changed, so the rule needs reading again`)
+        console.log(`   STALE: ${id} matches no form of the capture — the prompt changed, so the rule needs reading again`)
+      } else if (!fired.has(id)) {
+        console.log(`   already covered by a pack that runs first: ${id} (${where.join(", ")})`)
       }
     }
-    if (quiet.length) console.log(`   already covered by a pack that runs first: ${quiet.join(", ")}`)
+    console.log("")
   }
   if (!samples.length) console.log("nothing to check: no page/samples.js")
   return bad
@@ -272,16 +343,47 @@ if (check) {
   process.exit(bad ? 1 : 0)
 }
 
-if (!TARGETS.length) {
+const live = TARGETS.filter((t) => t.engine)
+for (const t of TARGETS) if (!t.engine) console.log(`  ${t.id}: no engine on this machine — skipped (pass --engine <path> to capture one)`)
+if (!live.length) {
   console.error("no agent engine found. Pass one: --engine <path to claude>")
   process.exit(2)
 }
 
 mkdirSync(refDir, { recursive: true })
 console.log("capturing the system prompt each agent sends:")
-for (const target of TARGETS) {
+for (const target of live) {
   if (only && target.id !== only) continue
-  await capture(target)
+  const got = []
+  for (const form of FORMS) {
+    const r = await capture(target, form)
+    if (r) got.push(r)
+  }
+  if (!got.length) continue
+
+  const said = got.find((r) => r.form === "default")
+  const named = got.filter((r) => r.form !== "default")
+  const same = (a, b) => Boolean(a && b && a.text === b.text)
+  const first = got[0]
+  const variants = {}
+  for (const r of named) {
+    const twin = named.find((x) => x !== r && same(x, r))
+    variants[r.form] = {
+      file: r.file,
+      chars: r.chars,
+      env: Object.entries(FORMS.find((f) => f.id === r.form).env).map(([k, v]) => `${k}=${v}`).join(" "),
+      ...(twin ? { sameAs: twin.form } : {}),
+    }
+  }
+  const onOwn = !said ? "" : same(said, named.find((r) => r.form === "full")) ? "full"
+    : same(said, named.find((r) => r.form === "simple")) ? "simple" : ""
+  writeFileSync(join(refDir, `${target.id}.json`), JSON.stringify({
+    name: target.name, version: first.version, entrypoint: first.entrypoint,
+    captured: new Date().toISOString().slice(0, 10), engine: target.engine,
+    onOwn, variants,
+  }, null, 2) + "\n")
+  const counts = named.map((r) => `${r.form} ${r.chars}`).join(", ")
+  console.log(`  ${target.id}: ${onOwn ? "this engine sends the " + onOwn + " form on its own" : "the form it sends on its own was not one asked for by name"}${counts ? " · " + counts : ""}`)
 }
 
 if (!noSamples) {

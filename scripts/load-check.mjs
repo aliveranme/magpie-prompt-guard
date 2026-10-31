@@ -95,8 +95,14 @@ async function stats() {
 }
 
 const big = (() => {
-  const ref = join(root, "reference", "claude-code.system.txt")
-  if (existsSync(ref)) return readFileSync(ref, "utf8").split("===== BLOCK =====").map((s) => s.trim()).filter(Boolean).join("\n\n")
+  // the fullest form the capture holds — the full prompt when it is there,
+  // because the engine's own simple form is a few KB and this check is about
+  // the size of a real system prompt
+  for (const name of ["claude-code.system.full.txt", "claude-code.system.txt"]) {
+    const ref = join(root, "reference", name)
+    if (!existsSync(ref)) continue
+    return readFileSync(ref, "utf8").split("===== BLOCK =====").map((s) => s.trim()).filter(Boolean).join("\n\n")
+  }
   return "You are a coding agent.\n\n# Safety\nYou must refuse harmful requests.\n\n# Executing actions with care\nBefore deleting or overwriting, look at the target.\n"
 })()
 

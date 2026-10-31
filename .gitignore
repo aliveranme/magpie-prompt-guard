@@ -2,8 +2,9 @@
 .sandbox/
 
 # the prompts scripts/extract-guardrails.mjs captures: somebody else's text,
-# read on this machine and kept here, never committed. page/samples.js — the
-# excerpt the page shows — is generated from it and is committed.
+# read on this machine and kept here, never committed — one file per form of
+# the prompt the target sends. page/samples.js — the excerpts the page shows —
+# is generated from it and is committed.
 reference/
 
 # the smoke test's pictures

@@ -28,8 +28,9 @@ It is one package that is both a **gateway middleware** and a **page in
 magpie's window**: the page edits the same options the gateway runs on, its
 test bench shows what the rules would do to a text you paste in, and its
 **guardrail presets** are extracted from the system prompts Claude Code and
-Claude Desktop really send — with the rules held to that text, and a button
-that shows, on a verbatim excerpt, exactly what comes out.
+Claude Desktop really send — in each form the engine ships — with the rules
+held to them, and a button that shows, on a verbatim excerpt, exactly what
+comes out.
 
 ```sh
 magpie plugin add ./magpie-prompt-guard      # or a published name
@@ -297,10 +298,12 @@ not reach the model, and what must still be in it:
   adds the preset's caution phrases to your `keep`.
 
 Each card also says how much of its own excerpt it removes. That share is of
-the *excerpt* — the fence-bearing part of a prompt and not all of it — which
-is why it reads high; on the whole captured prompt it is a couple of percent,
-because the fences are a few paragraphs out of a very long prompt and the
-caution is left standing.
+the *excerpt* — the fence-bearing part of the prompt it shows, which is the
+form the engine sends on its own, not all of it — which is why it reads high;
+on the whole prompt it is 2.2% for the full form and 8.3% for the simple one,
+because the fence is a couple of paragraphs out of a long prompt and the
+caution is left standing. The form the card does not show rides in the
+preset's `variants`, and the rules are held to both.
 
 ### Where the text comes from
 
@@ -319,23 +322,50 @@ writes `page/samples.js` from that. **`reference/` is not committed** — it is
 somebody else's prompt text, read on your machine — while the excerpts the
 page shows and the patterns derived from them are.
 
-`--check` is the regression check to run after an agent updates: it reports
-what each preset removes, and fails on either invariant — a clause from the
-target's "must not reach the model" list that is still in what would be sent,
-or one from its "must still be in it" list that went missing. A rule that
+The engine sends **two forms of its prompt** and picks between them per
+model: the full one for a model on Anthropic's roster, the simple one for
+everything else — `CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT=0` / `1` is the
+switch. A capture that took whatever came out would change shape with a
+model change, so each form is asked for by name, and a run with no flag at
+all records which one the engine sends on its own:
+
+| File | What it is |
+|---|---|
+| `reference/<target>.system.txt` | the form this engine sends on its own |
+| `reference/<target>.system.full.txt` | the full form |
+| `reference/<target>.system.simple.txt` | the simple form |
+| `reference/<target>.json` | version, entrypoint, which form is the default, and each form's size |
+
+A preset whose target has no capture on this machine — the desktop app
+carries its engine as a download, and may not have one — keeps the entry
+`page/samples.js` already had rather than losing it. On macOS the desktop app
+keeps that engine in a versioned folder of its own data directory, inside a
+`claude.app` bundle; the script looks in the bundle as well as beside it.
+
+`--check` is the regression check to run after an agent updates: it walks
+every captured form of each prompt, and fails on either invariant — a clause
+from the target's "must not reach the model" list that is still in what would
+be sent, or one from its "must still be in it" list that went missing. Each
+probe is held to the form it is actually in, so a line only the full prompt
+carries is not a failure when the simple form never had it. A rule that
 matches but never fires is reported separately: that is not a failure, it
-means one of the generic packs covered the clause first.
+means one of the generic packs covered the clause first. A rule that matches
+no form at all is a failure: the prompt changed, and the rule needs reading
+again.
 
 | Preset | Target | Captured | Fences it takes out | Caution it leaves |
 |---|---|---|---|---|
-| `claude-code` | Claude Code 2.1.301, the interactive CLI | 2026-10-16 | The `IMPORTANT:` block that says to refuse destructive techniques and to demand clear authorization before dual-use security work, and the "flag it to the user" line about injected tool results | The whole `# Executing actions with care` section, its examples of risky actions, "check with the user before proceeding", "always confirm first" |
-| `claude-desktop` | Claude Desktop 2.37337.1.0, the Claude Code engine 2.1.295 it ships | 2026-10-16 | The same `IMPORTANT:` block | "confirm first unless durably authorized", "sending content to an external service publishes it", "before deleting or overwriting, look at the target", "report outcomes faithfully" |
+| `claude-code` | Claude Code 2.1.316, the interactive CLI | 2026-10-31 | The `IMPORTANT:` block that says to refuse destructive techniques and to demand clear authorization before dual-use security work — in both forms of the prompt — and the "flag it to the user" line about injected tool results, which the full form carries | Both forms' caution: the whole `# Executing actions with care` section and its examples of risky actions, "check with the user before proceeding", "always confirm first", and the simple form's "confirm first unless durably authorized", "before deleting or overwriting, look at the target", "report outcomes faithfully" |
+| `claude-desktop` | Claude Desktop 4.4212.0, the Claude Code engine 2.1.309 it ships | 2026-10-31 | The same `IMPORTANT:` block in both forms, and the "flag it to the user" line the full form carries | Both forms' caution, as on the CLI: the `# Executing actions with care` section and its examples, "check with the user before proceeding", "always confirm first", "confirm first unless durably authorized", "before deleting or overwriting, look at the target", "report outcomes faithfully". The one line the desktop build adds — "Write code that reads like the surrounding code" — is left alone: it is style, not a fence |
 
-Measured on the captures: 2.2% of Claude Code's 27,268-character prompt and
-8.1% of Claude Desktop's 5,703 — and the share removed is exactly the fence,
-with the caution standing. The generic `work-restrictions` pack alone, with no
-preset applied, gets the same result to the sentence: the fences go, the
-caution stays.
+Measured on the captures: 2.2% of the prompt text the guardrails read in the
+full form (26,901 characters, the same for both engines) and 8.3% of Claude
+Code's simple form (5,620) and 8.1% of the desktop engine's (5,716) — and the
+share removed is exactly the fence, with the caution standing in both forms.
+The two engines are one codebase a version apart, so the full forms are
+byte-identical and the simple forms differ by that one style line. The
+generic `work-restrictions` pack alone, with no preset applied, gets the same
+result to the sentence: the fences go, the caution stays.
 
 ## What it costs, and why it stops reading
 
@@ -449,10 +479,10 @@ prompt-guard [claude]: injection ignore previous instructions in user ("ignore a
 ## Working on it
 
 ```sh
-bun test                          # 125 cases and the editor's own, on both engines
+bun test                          # 95 cases and the editor's own, on both engines
 bun run build                     # regenerate page/engine.js and page/samples.js
-bun run extract                   # capture the agents' prompts into reference/
-bun run check                     # hold the packs to what was captured
+bun run extract                   # capture every form of the agents' prompts into reference/
+bun run check                     # hold the packs to every captured form
 npm run smoke                     # drive the page in a real browser
 npm run load                      # sizes and shapes through a real magpie
 ```
@@ -481,7 +511,7 @@ scripts/extract-guardrails.mjs  captures a prompt from the agent itself
 scripts/make-samples.mjs     writes page/samples.js from the capture
 scripts/page-smoke.mjs       a developer's check in a real browser
 scripts/load-check.mjs       sizes and shapes through a real magpie
-reference/                   the captures — not committed
+reference/                   the captures, one file per form — not committed
 ```
 
 ## 中文
@@ -508,8 +538,8 @@ reference/                   the captures — not committed
 
 **它同时是网关中间件和 magpie 窗口里的一页**：页面编辑的就是网关执行的那份 options，
 页面里的「试验台」让你直接粘贴一段文本，看规则会把它改成什么样；「围栏预设」页则是从
-Claude Code 与 Claude Desktop **真实发出的**系统提示词里提取出来的。「提取」按钮会把
-命中的原句和剔除后的结果直接摊开给你看。
+Claude Code 与 Claude Desktop **真实发出的**系统提示词里提取出来的（引擎能发两种形态，
+两种都抓、两种都校验）；「提取」按钮会把命中的原句和剔除后的结果直接摊开给你看。
 
 ```sh
 magpie plugin add ./magpie-prompt-guard
@@ -579,22 +609,46 @@ node scripts/extract-guardrails.mjs --check  # 用抓取结果校验规则包
 `scripts/make-samples.mjs` 生成入库的 `page/samples.js`。agent 升级后重跑 `--check`：
 某条规则的模式不再匹配，就说明提示词被改写了，该重新读一遍。
 
+引擎的提示词有**两种形态**，按模型选择：Anthropic 名单内的模型拿到完整版，其余（也就是本机这类
+第三方模型）拿到精简版 —— 开关是 `CLAUDE_CODE_SIMPLE_SYSTEM_PROMPT=0` / `=1`。
+只在“碰巧拿到哪个形态”上抓一次数，模型一换结论就会变；所以现在两种形态都点名抓一遍，
+另外再跑一次不带开关的，记录**本机**默认发出的是哪一种：
+
+| 文件 | 是什么 |
+|---|---|
+| `reference/<target>.system.txt` | 本机引擎默认发出的那一形态 |
+| `reference/<target>.system.full.txt` | 完整版 |
+| `reference/<target>.system.simple.txt` | 精简版 |
+| `reference/<target>.json` | 版本、入口、默认形态，以及各形态的字符数 |
+
+本机上抓不到引擎的目标（桌面版把引擎放在下载目录里，未必下全）会保留 `page/samples.js`
+里已有的那一条，不会把它丢掉。macOS 上桌面版把引擎放在自己数据目录的版本文件夹里、包在
+`claude.app` 内；脚本会进到 bundle 里找，而不只是在旁边找。
+
+`--check` 是 agent 升级后要跑的回归检查：逐个形态跑一遍，两类不变量任一被破坏就失败——
+「不允许送到模型」的条款还在将发出的内容里，或「必须原样保留」的条款被删掉了。每个探针只对
+**它真正所在的形态**负责：只有完整版才有的句子，在精简版里缺失不算失败。规则还能匹配、只是
+没轮到它开火，会单独列出：那不是失败，说明通用包先命中了。**哪个形态里都匹配不到**的规则才是
+失败：提示词被改写了，该重新读一遍。
+
 | 预设 | 目标 | 抓取日期 | 剔除的围栏 | 保留的谨慎条款 |
 |---|---|---|---|---|
-| `claude-code` | Claude Code 2.1.301（交互 CLI） | 2026-10-16 | 声明「拒绝破坏性技术」并要求双用途安全工作必须有明确授权的那段 `IMPORTANT:`，以及工具结果疑似注入时「先向用户报告」那条 | 整个 `# Executing actions with care` 小节、其中的高风险动作清单、「check with the user before proceeding」「always confirm first」 |
-| `claude-desktop` | Claude Desktop 2.37337.1.0 自带的 Claude Code 引擎 2.1.295 | 2026-10-16 | 同一段 `IMPORTANT:` | 「confirm first unless durably authorized」「sending content to an external service publishes it」「before deleting or overwriting, look at the target」「report outcomes faithfully」 |
+| `claude-code` | Claude Code 2.1.316（交互 CLI） | 2026-10-31 | 声明「拒绝破坏性技术」并要求双用途安全工作必须有明确授权的那段 `IMPORTANT:`（两种形态里都在），以及工具结果疑似注入时「先停下来、向用户报告」那条（只有完整版有） | 两版都保留的谨慎条款：整个 `# Executing actions with care` 小节及其高风险动作清单、「check with the user before proceeding」「always confirm first」，以及精简版里的「confirm first unless durably authorized」「删改前先看清目标」「如实报告结果」 |
+| `claude-desktop` | Claude Desktop 4.4212.0 自带的 Claude Code 引擎 2.1.309 | 2026-10-31 | 同一段 `IMPORTANT:`（两种形态都删），以及只有完整版才有的「先停下来、向用户报告」那条 | 两版都保留的谨慎条款，和 CLI 一致：`# Executing actions with care` 小节及清单、「check with the user before proceeding」「always confirm first」「confirm first unless durably authorized」「删改前先看清目标」「如实报告结果」。桌面构建多出的那一行「Write code that reads like the surrounding code」保留不动：那是代码风格，不是围栏 |
 
-实测：Claude Code 27,268 字符的提示词删掉 **2.2%**，Claude Desktop 5,703 字符删掉 **8.1%**
-—— 删掉的正好是围栏，谨慎条款全部站立。**不应用任何预设、只用默认的
-`work-restrictions` 包，结果到句子级别完全一致**。
+实测：完整版（两个引擎都是 26,901 字符）删掉 **2.2%**；精简版 Claude Code 5,620
+字符删掉 **8.3%**，桌面引擎 5,716 字符删掉 **8.1%** —— 删掉的正好是围栏，两种形态里
+谨慎条款都站立。两个引擎是同一套代码相差一个版本，所以完整版逐字节相同，精简版只差那
+一行代码风格。**不应用任何预设、只用默认的 `work-restrictions` 包，结果到句子级别完全
+一致**。
 
 ### 测试与开发
 
 ```sh
-bun test                    # 125 条用例 + 编辑器逻辑，双引擎各跑一遍
+bun test                    # 95 条用例 + 编辑器逻辑，双引擎各跑一遍
 bun run build               # 重新生成 page/engine.js 与 page/samples.js
-bun run extract             # 抓取 agent 的真实系统提示词到 reference/
-bun run check               # 用抓取结果校验规则包
+bun run extract             # 抓取 agent 两种形态的真实系统提示词到 reference/
+bun run check               # 用抓取结果校验每一个形态
 npm run smoke               # 真实浏览器里驱动页面
 npm run load                # 真实 magpie 上跑各种体积与形状，读它的失败计数
 ```

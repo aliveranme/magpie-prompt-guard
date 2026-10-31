@@ -402,6 +402,11 @@ test("a preset names rules that exist, and is off until it is asked for", () => 
     expect(p.rules.length).toBeGreaterThan(2)
     for (const id of p.rules) expect(book).toContain(id)
     expect(V.presetOn(engine, {}, p)).toBe(false)
+    // the forms it was extracted from: what the page shows is the first, and
+    // a preset carried over from an older capture has the one excerpt it has
+    const forms = V.formsOf(p)
+    if (Array.isArray(p.variants)) expect(p.sample).toBe(p.variants[0].sample)
+    for (const form of forms) expect({ form: form.id, empty: form.sample.length === 0 }).toEqual({ form: form.id, empty: false })
   }
 })
 
@@ -422,19 +427,42 @@ test("applying a preset writes its packs, its caution, and nothing of the owner'
   }
 })
 
-test("a preset takes the fences out of the text it came from, and leaves the caution", () => {
+test("a preset takes the fences out of every form of the prompt it came from, and leaves the caution", () => {
   for (const p of V.presets()) {
-    const r = V.presetRun(engine, p)
+    const shown = V.presetRun(engine, p)
     expect(p.gone.length).toBeGreaterThan(2)
     expect(p.kept.length).toBeGreaterThan(3)
-    expect(r.hits.length).toBeGreaterThan(2)
-    expect(r.percent).toBeGreaterThan(0.01)
-    expect(r.percent).toBeLessThan(0.5)
-    expect(r.out.length).toBeGreaterThan(200)
-    for (const s of p.gone) expect({ probe: s, stillThere: r.out.includes(s) }).toEqual({ probe: s, stillThere: false })
-    for (const s of p.kept) expect({ probe: s, kept: r.out.includes(s) }).toEqual({ probe: s, kept: true })
-    // nothing is stale: a rule that another pack covers first is not
-    expect(r.missed).toEqual([])
+    expect(shown.hits.length).toBeGreaterThan(2)
+    expect(shown.percent).toBeGreaterThan(0.01)
+    expect(shown.percent).toBeLessThan(0.5)
+    expect(shown.out.length).toBeGreaterThan(200)
+    // nothing is stale: a rule another pack covers first is not, and neither
+    // is one whose clause only the other form of the prompt still carries
+    expect(shown.missed).toEqual([])
+
+    // and the covenant holds on each form, probe by probe: a fence the form
+    // carries has to be gone, a caution line it carries has to be there
+    const seen = new Set()
+    for (const form of V.formsOf(p)) {
+      const opts = { guardrails: { packs: Object.fromEntries(p.packs.map((id) => [id, true])), keep: [...engine.DEFAULT_KEEP, ...p.keep] } }
+      const r = engine.previewText(form.sample, opts, "system")
+      const percent = (form.sample.length - r.out.length) / form.sample.length
+      expect({ form: form.id, "enough removed": percent > 0.01 }).toEqual({ form: form.id, "enough removed": true })
+      expect({ form: form.id, "caution left in it": percent < 0.5 }).toEqual({ form: form.id, "caution left in it": true })
+      expect({ form: form.id, "something still sent": r.out.length > 200 }).toEqual({ form: form.id, "something still sent": true })
+      for (const s of p.gone) {
+        if (!form.sample.includes(s)) continue
+        seen.add(s)
+        expect({ form: form.id, probe: s, stillThere: r.out.includes(s) }).toEqual({ form: form.id, probe: s, stillThere: false })
+      }
+      for (const s of p.kept) {
+        if (!form.sample.includes(s)) continue
+        seen.add(s)
+        expect({ form: form.id, probe: s, kept: r.out.includes(s) }).toEqual({ form: form.id, probe: s, kept: true })
+      }
+    }
+    // a probe in no form at all is a promise about a prompt that is gone
+    for (const s of p.gone.concat(p.kept)) expect({ probe: s, inSomeForm: seen.has(s) }).toEqual({ probe: s, inSomeForm: true })
   }
 })
 

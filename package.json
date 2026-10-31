@@ -1,6 +1,6 @@
 {
   "name": "magpie-prompt-guard",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Filters the prompts magpie's gateway sends: keeps injection phrases out of a request, and takes the refusal-making safety boilerplate out of an agent's own system prompt",
   "type": "module",
   "files": ["prompt-guard.middleware.js", "page", "README.md"],

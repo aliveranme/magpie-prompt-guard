@@ -5,22 +5,35 @@
 //   node scripts/extract-guardrails.mjs        capture, then write this
 //   node scripts/make-samples.mjs              write it from what is there
 //
+// The engine sends two forms of its prompt — the full one for a model on
+// Anthropic's roster, the simple one for everything else — and both are
+// excerpts of the same excerpt-making rules: each preset carries the forms
+// its capture held under `variants`, and the tests hold the rules and the
+// text together on every one of them. The excerpt the page shows
+// (`sample`) is the first form, which is the full one when it is there.
+//
+// A target this machine has no capture of — the desktop app ships its
+// engine as a download, and may not have one — keeps the entry it already
+// had in page/samples.js rather than losing it: that entry then carries the
+// one excerpt it was written with, and says so by having no `variants`.
+//
 // The file is generated, and committed: a page is served as it is written
 // and runs sandboxed with no way to read reference/, so the sample the test
 // bench shows has to be in the page's own folder. The test suite runs the
 // presets over these samples and fails while the rules and the text disagree
-// — and, where reference/ is still there, over the whole prompt as captured.
+// — and, where reference/ is still there, over whole forms as captured.
 //
 // A paragraph is kept when it says something a guardrail rule looks for, and
 // the heading above it is kept with it: that is what makes the sample read
 // like the prompt it came from without being all of it.
-import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs"
+import { readFileSync, writeFileSync, existsSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 const here = import.meta.dir ?? dirname(fileURLToPath(import.meta.url))
 const root = join(here, "..")
 const refDir = join(root, "reference")
+const samplesPath = join(root, "page", "samples.js")
 
 // what a kept paragraph has to say: every clause the packs target, and
 // nothing else. Kept as one list so a rule and the reason it exists stay
@@ -51,6 +64,7 @@ const WANTED = [
 const CAUTION = [
   "reversibility and blast radius",
   "confirm first",
+  "approval in one context",
   "before deleting or overwriting",
   "reversible step",
   "uncommitted",
@@ -81,7 +95,8 @@ const TARGETS = [
     ],
     keep: CAUTION,
     // what the extraction is for: these must be gone from what is sent, and
-    // these must still be in it. `--check` and the test suite fail on either.
+    // these must still be in it. `--check` and the test suite fail on either,
+    // holding each probe to the form of the prompt it is actually in.
     gone: [
       "authorized security testing",
       "Dual-use security tools",
@@ -99,11 +114,17 @@ const TARGETS = [
       "rather than bypassing safety checks",
       "OWASP top 10",
       "Only use emojis",
+      "confirm first unless durably authorized",
+      "approval in one context",
+      "Sending content to an external service publishes it",
+      "Before deleting or overwriting, look at the target",
+      "Report outcomes faithfully",
+      "file_path:line_number",
     ],
     keepline: [/Tone and style/i, /Only use emojis/i, /short and concise/i, /OWASP top 10/i],
     what: {
-      en: "The IMPORTANT block that tells the agent to refuse destructive techniques and to demand clear authorization before dual-use security work, the \"flag it to the user\" line about injected tool results, and the whole \"Executing actions with care\" section — the one that makes it ask before every outward step. The OWASP bullet and \"Only use emojis\" are left alone: they are good practice, not a fence.",
-      zh: "「拒绝破坏性技术、双用途安全工作需明确授权」的那段 IMPORTANT 声明，工具结果疑似注入时「先向用户报告」的那条，以及整个「Executing actions with care」小节（就是它让 agent 每做一步都要先问一遍）。OWASP 那条和「只在明确要求时用 emoji」会保留——那是良好实践，不是围栏。",
+      en: "The IMPORTANT block that tells the agent to refuse destructive techniques and to demand clear authorization before dual-use security work, and the \"suspected prompt injection\" line that tells it to stop and flag a tool result. Both stand in each form of the prompt — the full one and the simple one this engine sends for a model outside Anthropic's roster. The caution stays in both: the \"Executing actions with care\" section, \"confirm first unless durably authorized\", \"before deleting or overwriting, look at the target\". The OWASP bullet and \"Only use emojis\" are left alone too: they are good practice, not a fence.",
+      zh: "「拒绝破坏性技术、双用途安全工作需明确授权」的那段 IMPORTANT 声明，以及工具结果疑似注入时「停下来、先向用户报告」的那条——两种形态的提示词里（完整版，以及本机这类非 Anthropic 名单模型拿到的精简版）都在。谨慎条款两版都保留：「Executing actions with care」小节、「confirm first unless durably authorized」、「删改之前先看清楚目标」。OWASP 那条和「只在明确要求时用 emoji」同样保留——那是良好实践，不是围栏。",
     },
   },
   {
@@ -115,14 +136,26 @@ const TARGETS = [
       "ccd-authorized-testing",
       "ccd-refuse-destructive",
       "ccd-dual-use",
+      "ccd-injection-flag",
     ],
     keep: CAUTION,
     gone: [
       "authorized security testing",
       "Dual-use security tools",
       "Refuse requests for destructive",
+      "attempt at prompt injection",
     ],
     kept: [
+      "Executing actions with care",
+      "reversibility and blast radius",
+      "check with the user before proceeding",
+      "always confirm first",
+      "Authorization stands for the scope specified",
+      "Examples of the kind of risky actions",
+      "Destructive operations: deleting files",
+      "rather than bypassing safety checks",
+      "OWASP top 10",
+      "Only use emojis",
       "confirm first unless durably authorized",
       "approval in one context",
       "Sending content to an external service publishes it",
@@ -130,10 +163,10 @@ const TARGETS = [
       "Report outcomes faithfully",
       "file_path:line_number",
     ],
-    keepline: [/Report outcomes faithfully/i, /file_path:line_number/, /# Environment/i],
+    keepline: [/Report outcomes faithfully/i, /file_path:line_number/, /# Environment/i, /Write code that reads like the surrounding code/i],
     what: {
-      en: "The same IMPORTANT block, and the desktop harness's own line about confirming before anything hard to reverse or outward-facing — plus \"sending content to an external service publishes it\" and \"before deleting or overwriting, look at the target\". \"Report outcomes faithfully\" stays: being honest about a failed test is not a fence.",
-      zh: "同一段 IMPORTANT 声明，加上桌面版 harness 自己那句「不可逆或对外的动作先确认」——以及「发往外部服务就等于公开」「删改之前先看清楚目标」。而「如实报告结果」会保留：测试失败就照实说，那不是围栏。",
+      en: "The desktop app's own engine build, which writes one more style line than the CLI's (\"Write code that reads like the surrounding code\") and leaves it alone. Its prompt comes in the same two forms: the IMPORTANT block goes in both, and the \"suspected prompt injection\" line in the full one. The harness's caution stays in both — \"confirm first unless durably authorized\", \"sending content to an external service publishes it\", \"before deleting or overwriting, look at the target\", \"report outcomes faithfully\" — and \"Report outcomes faithfully\" is not a fence: being honest about a failed test is not one.",
+      zh: "桌面端自带的引擎构建：比 CLI 多写一行代码风格（「匹配周围代码的风格」），这行保留不动。它的提示词同样是两种形态：`IMPORTANT:` 声明两版都删，工具结果疑似注入那条只在完整版里删。桌面 harness 的谨慎条款两版都保留——「confirm first unless durably authorized」「发往外部服务就等于公开」「删改之前先看清目标」「如实报告结果」；「如实报告结果」不是围栏：测试失败就照实说，那不是限制。",
     },
   },
 ]
@@ -183,21 +216,62 @@ function excerpt(text, target) {
   return out.join("\n\n    […]\n\n")
 }
 
+// promptBody is the captured prompt without the header block the engine
+// writes its own version into: an extractor writes the blocks it caught as
+// one file, and the prompt is everything after the first
+const promptBody = (raw) => (raw.includes("===== BLOCK =====") ? raw.split("===== BLOCK =====").slice(1).join("") : raw)
+
+// FORM_FILES is the forms a capture can hold, in the order they are worth
+// showing: the full prompt first, then the simple one. A capture from an
+// engine that sends only one form has just the plain file, and is read as
+// the one form it is.
+const FORM_FILES = ["full", "simple"]
+
 function readTarget(target) {
-  const file = join(refDir, `${target.id}.system.txt`)
-  if (!existsSync(file)) return null
   const metaFile = join(refDir, `${target.id}.json`)
   const meta = existsSync(metaFile) ? JSON.parse(readFileSync(metaFile, "utf8")) : {}
-  const raw = readFileSync(file, "utf8")
-  // an extractor writes the blocks it caught as one file; the prompt is
-  // everything after its own header
-  const body = raw.includes("===== BLOCK =====") ? raw.split("===== BLOCK =====").slice(1).join("") : raw
-  return { target, sample: excerpt(body, target), meta }
+  const forms = []
+  for (const form of FORM_FILES) {
+    const file = join(refDir, `${target.id}.system.${form}.txt`)
+    if (!existsSync(file)) continue
+    const sample = excerpt(promptBody(readFileSync(file, "utf8")), target)
+    if (sample.trim()) forms.push({ id: form, sample })
+  }
+  if (forms.length) {
+    // the same form twice is one form: an engine that ignores the switch, or
+    // a capture taken before there were two
+    const unique = forms.filter((f, i) => forms.findIndex((x) => x.sample === f.sample) === i)
+    // the card shows the form this engine sends on its own — the prompt it
+    // really sends — and the other one rides beside it for the tests and
+    // --check; a capture that did not record which is which keeps the full
+    // one first
+    const onOwn = unique.findIndex((f) => f.id === meta.onOwn)
+    if (onOwn > 0) unique.unshift(unique.splice(onOwn, 1)[0])
+    return { target, meta, forms: unique }
+  }
+  const plain = join(refDir, `${target.id}.system.txt`)
+  if (!existsSync(plain)) return null
+  const sample = excerpt(promptBody(readFileSync(plain, "utf8")), target)
+  return sample.trim() ? { target, meta, forms: [{ id: "captured", sample }] } : null
 }
 
-const CAPTURED = existsSync(join(refDir, "captured.json")) ? JSON.parse(readFileSync(join(refDir, "captured.json"), "utf8")) : {}
-const found = TARGETS.map(readTarget)
-const missing = found.filter((f) => !f || !f.sample.trim()).map((f, i) => TARGETS[i].id)
+// previous is what the page already carries, read before this run replaces
+// it: a target without a capture keeps its entry rather than losing it
+const previous = (() => {
+  if (!existsSync(samplesPath)) return {}
+  try {
+    const box = {}
+    new Function("globalThis", readFileSync(samplesPath, "utf8"))(box)
+    return Object.fromEntries((box.PromptGuardPresets || []).map((p) => [p.id, p]))
+  } catch (err) {
+    console.error("page/samples.js could not be read back: " + err.message)
+    return {}
+  }
+})()
+
+const found = TARGETS.map((target) => ({ target, read: readTarget(target) }))
+const missing = []
+for (const entry of found) if (!entry.read && !previous[entry.target.id]) missing.push(entry.target.id)
 if (missing.length) {
   console.error(`no capture in reference/ for: ${missing.join(", ")}`)
   console.error("run `node scripts/extract-guardrails.mjs` first, or copy a capture in by hand")
@@ -205,21 +279,44 @@ if (missing.length) {
 }
 
 const lit = (s) => JSON.stringify(s)
-const entries = found.map(({ target, sample, meta }) => {
+const line = (k, s) => `    ${k}: ${s},`
+
+function entryOf(target, forms, meta) {
   const head = []
-  head.push(`    id: ${lit(target.id)},`)
-  head.push(`    name: ${lit(target.name)},`)
-  head.push(`    packs: [${target.packs.map(lit).join(", ")}],`)
-  head.push(`    keep: [${target.keep.map(lit).join(", ")}],`)
-  head.push(`    gone: [${target.gone.map(lit).join(", ")}],`)
-  head.push(`    kept: [${target.kept.map(lit).join(", ")}],`)
-  head.push(`    source: ${lit([target.source, meta.version, meta.entrypoint].filter(Boolean).join(" · "))},`)
-  head.push(`    captured: ${lit(meta.captured || (CAPTURED[target.id] || {}).captured || "")},`)
-  head.push(`    rules: [${target.rules.map(lit).join(", ")}],`)
-  head.push(`    what: ${JSON.stringify(target.what, null, 2).split("\n").join("\n    ")},`)
-  head.push(`    sample: ${lit(sample)},`)
+  head.push(line("id", lit(target.id)))
+  head.push(line("name", lit(target.name)))
+  head.push(line("packs", `[${target.packs.map(lit).join(", ")}]`))
+  head.push(line("keep", `[${target.keep.map(lit).join(", ")}]`))
+  head.push(line("gone", `[${target.gone.map(lit).join(", ")}]`))
+  head.push(line("kept", `[${target.kept.map(lit).join(", ")}]`))
+  head.push(line("source", lit([target.source, meta.version, meta.entrypoint].filter(Boolean).join(" · "))))
+  head.push(line("captured", lit(meta.captured || "")))
+  head.push(line("rules", `[${target.rules.map(lit).join(", ")}]`))
+  head.push(line("what", JSON.stringify(target.what, null, 2).split("\n").join("\n    ")))
+  head.push(line("sample", lit(forms[0].sample)))
+  head.push(line("variants", `[\n${forms.map((f) => `      { ${line("id", lit(f.id)).trim()} ${line("sample", lit(f.sample)).trim()} },`).join("\n")}\n    ]`))
   return `  {\n${head.join("\n")}\n  },`
-})
+}
+
+// carried is an entry this machine has no capture for: what the page already
+// had, written back as it was
+function carriedOf(old) {
+  const head = []
+  head.push(line("id", lit(old.id)))
+  head.push(line("name", lit(old.name)))
+  head.push(line("packs", `[${(old.packs || []).map(lit).join(", ")}]`))
+  head.push(line("keep", `[${(old.keep || []).map(lit).join(", ")}]`))
+  head.push(line("gone", `[${(old.gone || []).map(lit).join(", ")}]`))
+  head.push(line("kept", `[${(old.kept || []).map(lit).join(", ")}]`))
+  head.push(line("source", lit(old.source || "")))
+  head.push(line("captured", lit(old.captured || "")))
+  head.push(line("rules", `[${(old.rules || []).map(lit).join(", ")}]`))
+  head.push(line("what", JSON.stringify(old.what, null, 2).split("\n").join("\n    ")))
+  head.push(line("sample", lit(old.sample)))
+  return `  {\n${head.join("\n")}\n  },`
+}
+
+const entries = found.map(({ target, read }) => read ? entryOf(target, read.forms, read.meta) : carriedOf(previous[target.id]))
 
 const file = `// The two Claude presets: the guardrail-bearing text of each target's own
 // system prompt, and the rules that take it out.
@@ -232,15 +329,28 @@ const file = `// The two Claude presets: the guardrail-bearing text of each targ
 // written and runs sandboxed with no way to read it, so the sample the test
 // bench shows has to be here.
 //
-// The test suite runs each preset over its own sample and fails when the
-// rules and the text stop agreeing.
+// Each preset carries the forms of its prompt its capture held under
+// \`variants\` — the full prompt, and the simple one the engine sends for a
+// model outside Anthropic's roster. \`sample\` is the first of them and is
+// what the page shows: the form this engine sends on its own, so the card
+// demonstrates the prompt the machine really sends; the other form is held
+// beside it. A preset whose capture this machine does not have is carried
+// over as it was, with no \`variants\`: its \`sample\` is the one form that was
+// captured.
+//
+// The test suite runs each preset over every form and fails when the rules
+// and the text stop agreeing.
 globalThis.PromptGuardPresets = [
 ${entries.join("\n")}
 ]
 `
 
-writeFileSync(join(root, "page", "samples.js"), file)
-for (const { target, sample, meta } of found) {
-  console.log(`${target.id}: ${sample.length} chars of excerpt${meta.version ? " (" + meta.version + ")" : ""}`)
+writeFileSync(samplesPath, file)
+for (const { target, read } of found) {
+  if (!read) {
+    console.log(`${target.id}: no capture on this machine — kept the entry page/samples.js already had`)
+    continue
+  }
+  console.log(`${target.id}: ${read.forms.map((f) => `${f.id} ${f.sample.length}`).join(", ")} chars of excerpt${read.meta.version ? " (" + read.meta.version + ")" : ""}`)
 }
 console.log("page/samples.js written")
