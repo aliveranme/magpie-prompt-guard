@@ -186,7 +186,18 @@ size: holding on to `api key` keeps the sentence about it, not the paragraph.
 |---|---|---|---|
 | `classic` | on | 7 | `ig-override`, `ig-newrules`, `ig-exfil`, `ig-repeat-above`, `ig-decode`, `ig-override-cn`, `ig-exfil-cn` |
 | `spoof` | on | 4 | `ig-fake-system`, `ig-role-marker`, `ig-delimiter`, `ig-role-marker-cn` |
-| `jailbreak` | on | 8 | `ig-jailbreak`, `ig-norestrict`, `ig-pretend`, `ig-safetyoff`, `ig-unrestricted`, `ig-youarenow`, `ig-jailbreak-cn`, `ig-norestrict-cn` |
+| `[filtered]` | on | 8 | `ig-[filtered]`, `ig-norestrict`, `ig-pretend`, `ig-safetyoff`, `ig-unrestricted`, `ig-youarenow`, `ig-[filtered]-cn`, `ig-norestrict-cn` |
+
+Before the rules run, each text is read through a **normalized view**:
+confusable spellings of ASCII (fullwidth letters, Cyrillic and Greek look-alikes,
+Mathematical Alphanumeric Symbols) fold to the plain letters, invisible
+characters (zero-width spaces, soft hyphens, directional marks) come out, and
+a column of one-word lines — how a phrase hides from line-anchored rules —
+reads as the sentence it spells. A phrase wrapped across two short lines is
+still one phrase; a full stop and a blank line end one. What is **reported**
+and what is **taken out** are the original bytes: the match is found on the
+view, the mask is cut from the text as the sender wrote it, so a rewritten
+request is never rewritten beyond the phrase that fired.
 
 ### Guardrails
 

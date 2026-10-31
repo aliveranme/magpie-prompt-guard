@@ -322,7 +322,7 @@ const INJECTION_PACKS = {
     {
       id: "ig-override",
       name: "ignore previous instructions",
-      pattern: "\\b(?:ignore|disregard|forget|discard|override|skip|bypass)\\b[^.\\n]{0,60}\\b(?:instructions?|prompts?|rules?|directions?|commands?|guidelines?|constraints?|restrictions?|polic(?:y|ies))\\b",
+      pattern: "\\b(?:ignore|disregard|forget|discard|override|skip|bypass)\\b(?:[^\\n.]|\\n(?!\\n)){0,60}\\b(?:instructions?|prompts?|rules?|directions?|commands?|guidelines?|constraints?|restrictions?|polic(?:y|ies))\\b",
     },
     {
       id: "ig-newrules",
@@ -332,17 +332,17 @@ const INJECTION_PACKS = {
     {
       id: "ig-exfil",
       name: "reveal the system prompt",
-      pattern: "\\b(?:reveal|print|show|repeat|output|display|echo|dump|list|paste|translate|summari[sz]e|tell\\s+me)\\b[^.\\n]{0,50}\\b(?:your|the)\\s+(?:system\\s*prompt|initial\\s*prompt|original\\s*prompt|instructions|rules|directives|guidelines|prompt)\\b",
+      pattern: "\\b(?:reveal|print|show|repeat|output|display|echo|dump|list|paste|translate|summari[sz]e|tell\\s+me)\\b(?:[^\\n.]|\\n(?!\\n)){0,50}\\b(?:your|the)\\s+(?:system\\s*prompt|initial\\s*prompt|original\\s*prompt|instructions|rules|directives|guidelines|prompt)\\b",
     },
     {
       id: "ig-repeat-above",
       name: "repeat the words above",
-      pattern: "\\b(?:repeat|print|output|echo|paste|show)\\b[^.\\n]{0,30}\\b(?:the\\s+)?(?:words|text|everything|all|content)\\s+(?:above|before|preceding)\\b",
+      pattern: "\\b(?:repeat|print|output|echo|paste|show)\\b(?:[^\\n.]|\\n(?!\\n)){0,30}\\b(?:the\\s+)?(?:words|text|everything|all|content)\\s+(?:above|before|preceding)\\b",
     },
     {
       id: "ig-decode",
       name: "decode this and follow it",
-      pattern: "\\b(?:decode|decrypt|base64|rot13|unescape)\\b[^.\\n]{0,40}\\b(?:and\\s+)?(?:follow|execute|run|apply|obey|do)\\b",
+      pattern: "\\b(?:decode|decrypt|base64|rot13|unescape)\\b(?:[^\\n.]|\\n(?!\\n)){0,40}\\b(?:and\\s+)?(?:follow|execute|run|apply|obey|do)\\b",
     },
     // The Chinese spellings of the same two: a word boundary does not fall
     // between a space and a CJK character, so these carry none, and a full
@@ -370,7 +370,10 @@ const INJECTION_PACKS = {
       id: "ig-fake-system",
       name: "a forged system marker",
       flags: "im",
-      pattern: "(?:<\\|(?:im_start|im_end|system|endoftext|start_header_id|end_header_id)\\|>|<\\s*/?\\s*(?:system|assistant|user)\\s*>|\\[\\s*system\\s*\\]|<<\\s*SYS\\s*>>|\\[\\s*INST\\s*\\]|\\[\\s*DEVELOPER[ _-]?MODE\\s*\\]|^\\s{0,3}#{1,6}\\s*(?:system|developer)\\b|\\bsystem\\s+(?:prompt|message|instruction)s?\\s+(?:start|begin|end)s?\\b)",
+      // the heading form asks for a start/end word — "# System architecture"
+      // is a document about one, and taking that out would be the plugin
+      // rewriting ordinary prose
+      pattern: "(?:<\\|(?:im_start|im_end|system|endoftext|start_header_id|end_header_id)\\|>|<\\s*/?\\s*(?:system|assistant|user)\\s*>|\\[\\s*system\\s*\\]|<<\\s*SYS\\s*>>|\\[\\s*INST\\s*\\]|\\[\\s*DEVELOPER[ _-]?MODE\\s*\\]|^\\s{0,3}#{1,6}\\s*(?:system|developer)\\s+(?:prompt|message|instruction|start|begin|end)s?\\b|\\bsystem\\s+(?:prompt|message|instruction)s?\\s+(?:start|begin|end)s?\\b)",
     },
     {
       id: "ig-role-marker",
@@ -401,17 +404,19 @@ const INJECTION_PACKS = {
     {
       id: "ig-norestrict",
       name: "no restrictions",
-      pattern: "\\b(?:without|no|free\\s+of|ignore)\\s+(?:any\\s+|all\\s+|your\\s+)?(?:restrictions?|limitations?|filters?|censorship|guardrails?|constraints?|safety\\s+(?:checks?|filters?|guidelines?|measures?))\\b",
+      // an imperative or a "you have" carries the ask: "our team has no
+      // restrictions on hours" is a fact about an office, not a jailbreak
+      pattern: "\\b(?:act|behave|respond|operate|function|answer|reply|comply|work|run)\\b(?:[^\\n.]|\\n(?!\\n)){0,30}\\b(?:with(?:out)?|no|free\\s+of)\\b(?:[^\\n.]|\\n(?!\\n)){0,20}\\b(?:any\\s+|all\\s+|your\\s+)?(?:restrictions?|limitations?|filters?|censorship|guardrails?|constraints?|safety\\s+(?:checks?|filters?|guidelines?|measures?))\\b|\\byou\\s+have\\s+(?:no|zero)\\s+(?:restrictions?|limitations?|filters?|guardrails?|constraints?)\\b",
     },
     {
       id: "ig-pretend",
       name: "pretend you have no rules",
-      pattern: "\\b(?:pretend|imagine|assume|act\\s+as\\s+(?:if|though)|behave\\s+as\\s+(?:if|though)|roleplay\\s+as|respond\\s+as)\\b[^.\\n]{0,60}\\b(?:no|without|not\\s+bound|free\\s+of|unbound)\\b[^.\\n]{0,40}\\b(?:restrictions?|limits?|rules?|polic(?:y|ies)|guidelines?|ethics?|filters?)\\b",
+      pattern: "\\b(?:pretend|imagine|assume|act\\s+as\\s+(?:if|though)|behave\\s+as\\s+(?:if|though)|roleplay\\s+as|respond\\s+as)\\b(?:[^\\n.]|\\n(?!\\n)){0,60}\\b(?:no|without|not\\s+bound|free\\s+of|unbound)\\b(?:[^\\n.]|\\n(?!\\n)){0,40}\\b(?:restrictions?|limits?|rules?|polic(?:y|ies)|guidelines?|ethics?|filters?)\\b",
     },
     {
       id: "ig-safetyoff",
       name: "bypass the safety filter",
-      pattern: "\\b(?:bypass|disable|turn\\s+off|switch\\s+off|deactivate|circumvent|get\\s+around|remove)\\b[^.\\n]{0,30}\\b(?:safety|content|security|moderation)\\s*(?:filters?|checks?|guardrails?|guidelines?|polic(?:y|ies)|restrictions?|protocols?|measures?)\\b",
+      pattern: "\\b(?:bypass|disable|turn\\s+off|switch\\s+off|deactivate|circumvent|get\\s+around|remove)\\b(?:[^\\n.]|\\n(?!\\n)){0,30}\\b(?:safety|content|security|moderation)\\s*(?:filters?|checks?|guardrails?|guidelines?|polic(?:y|ies)|restrictions?|protocols?|measures?)\\b",
     },
     {
       id: "ig-unrestricted",
@@ -421,7 +426,7 @@ const INJECTION_PACKS = {
     {
       id: "ig-youarenow",
       name: "you are now …",
-      pattern: "\\b(?:you\\s+are\\s+now|from\\s+now\\s+on,?\\s*you\\s+are|your\\s+new\\s+(?:role|persona|identity)\\s+is)\\b[^.\\n]{0,60}",
+      pattern: "\\b(?:you\\s+are\\s+now|from\\s+now\\s+on,?\\s*you\\s+are|your\\s+new\\s+(?:role|persona|identity)\\s+is)\\b(?:[^\\n.]|\\n(?!\\n)){0,60}",
     },
     {
       id: "ig-jailbreak-cn",
@@ -909,40 +914,69 @@ function compileAll(list) {
 // out where the rule asks for it. A rule's own action wins over the scope's;
 // a rejection wins over a neutralization of the same text, since that
 // request is going anyway.
+//
+// The rules are matched on the normalized view — confusable characters
+// folded, invisible ones out — and the matches are taken out of the text as
+// it was sent, so what an agent then sees of its request is the bytes it
+// wrote, minus the phrases. Matching without folding is how a fullwidth
+// "ｉｇｎｏｒｅ" rides past every rule; matching on the fold alone would
+// rewrite a request the writer never sent.
 function scanText(text, plan) {
   const hits = []
   if (typeof text !== "string" || !text) return { out: text, hits, reject: null }
-  let normalized = text
-  if (/[\u200B-\u200D\u200E\u200F\uFEFF]/.test(normalized)) {
-    normalized = normalized.replace(/[\u200B-\u200D\u200E\u200F\uFEFF]/g, "")
-  }
-  let out = normalized
+  const norm = normalize(text)
+  const view = norm.s
+  const map = norm.map
+  const spans = []
   let reject = null
   for (const rule of plan.rules) {
     const a = rule.action
     if (a === "off") continue
-    if (a === "neutralize") {
-      // asked before it is run: a match builds a whole new string, and a
-      // rule that does not match must not cost one
-      rule.re.lastIndex = 0
-      if (!rule.re.test(out)) continue
-      rule.re.lastIndex = 0
-      out = out.replace(rule.re, (m) => {
-        if (hits.length < 200) hits.push(hitOf(rule, m))
-        return plan.mask
-      })
-      continue
-    }
-    for (const m of find(rule.re, normalized)) {
-      const hit = hitOf(rule, m)
+    // find on the view once, whether the rule neutralizes or rejects: the
+    // matches' spans are what both need
+    const found = spansOf(rule.re, view)
+    if (!found.length) continue
+    for (const s of found) {
+      const hit = hitOf(rule, view.slice(s[0], s[1]))
       if (hits.length < 200) hits.push(hit)
       if (a === "reject" && !reject) reject = hit
     }
+    if (a === "neutralize") spans.push(...found)
     // the request is going anyway, so nothing later matters: the rest of the
     // rules are what the 250 ms a hook has is spent on
     if (reject) break
   }
+  if (!spans.length) return { out: text, hits, reject }
+  // the mask goes on in the original coordinates, back to front, after every
+  // rule has matched: a rule's span would not survive a rewrite by another
+  // rule's mask in between
+  spans.sort((x, y) => y[0] - x[0])
+  let out = text
+  let last = -1
+  for (const s of spans) {
+    // an earlier-in-the-text match of one rule covering a later rule's span
+    // already carries it; masking inside a mask would leave the mask twice
+    if (last >= 0 && s[1] > last) continue
+    out = maskAt(out, map, s[0], s[1], plan.mask)
+    last = s[0] === last ? last : s[0]
+  }
   return { out, hits, reject }
+}
+
+// spansOf runs one global expression over one view and returns each match as
+// a [start, end) of view indexes, overlapping matches included — one rule's
+// second hit must not be swallowed by its first
+function spansOf(re, view) {
+  const spans = []
+  re.lastIndex = 0
+  let m
+  let guard = 0
+  while ((m = re.exec(view)) !== null) {
+    if (m[0]) spans.push([m.index, m.index + m[0].length])
+    if (!m[0]) re.lastIndex++
+    if (++guard > 200) break
+  }
+  return spans
 }
 
 function hitOf(rule, match) {
@@ -960,6 +994,168 @@ function find(re, text) {
     if (++guard > 200) break
   }
   return out
+}
+
+// ---------------------------------------------------------------------------
+// Normalization — the obfuscated spellings of the same phrases
+// ---------------------------------------------------------------------------
+
+// A homoglyph is a character that looks like an ASCII one and is not: a
+// fullwidth "ｉ", a Mathematical Alphanumeric Symbol, a Cyrillic "і" inside
+// an otherwise Latin word. The rules are written for the plain spellings, so
+// normalize() folds the confusables to ASCII and maps every folded character
+// back to where it came from; maskAt() then rewrites exactly the matched
+// span of the text as it was sent. A text with nothing confusable in it —
+// the common case — comes back as itself with a null map, and the scan runs
+// on the original with no indirection at all.
+const HOMOGLYPHS = {
+  // fullwidth Latin (U+FF21–FF5A) folds by NFKC; the rest are set by hand
+  "\u04B0": "Y", "\u04B1": "y", "\u04AE": "Y", "\u04AF": "y",
+  "\u0456": "i", "\u0406": "I", "\u0451": "e", "\u0401": "E",
+  "\u0430": "a", "\u0410": "A", "\u0435": "e", "\u0415": "E",
+  "\u043E": "o", "\u041E": "O", "\u0441": "c", "\u0421": "C",
+  "\u0440": "p", "\u0420": "P", "\u0445": "x", "\u0425": "X",
+  "\u0432": "B", "\u0412": "B", "\u043D": "H", "\u041D": "H",
+  "\u043A": "K", "\u041A": "K", "\u043C": "M", "\u041C": "M",
+  "\u0442": "T", "\u0422": "T",
+  "\u0261": "g", "\u0251": "a", "\u025B": "e", "\u025C": "e",
+  "\u0131": "i", "\u0391": "A", "\u03B5": "e", "\u03BF": "o",
+  "\u03C1": "p", "\u03D2": "Y",
+  // the fullwidth punctuation a phrase may carry between its words
+  "\uFF1A": ":", "\uFF01": "!", "\uFF1F": "?", "\uFF0C": ",",
+  "\u201C": '"', "\u201D": '"', "\u2018": "'", "\u2019": "'",
+}
+
+const ZWSP = /[\u200B-\u200D\u200E\u200F\uFEFF\u2060\u00AD]/
+const SUSPICIOUS = /[\u00AD\u0370-\u03FF\u0400-\u04FF\u1D2C-\u1DFF\u1D400-\u1D7FF\u200B-\u200F\u2060\u2061-\u2064\u206A-\u206F\u20D0-\u20FF\u2100-\u214F\u2150-\u218F\u24B6-\u24E9\uFE00-\uFE0F\uFF00-\uFFEF\uFFE0-\uFFE6]|\uD835[\uDC00-\uDFFF]/
+
+function normalize(text) {
+  const columns = wordColumns(text)
+  if (!columns && !SUSPICIOUS.test(text)) return { s: text, map: null }
+  if (columns && !SUSPICIOUS.test(text)) {
+    // ASCII, so the view is the text with the column's newlines as spaces:
+    // the map carries each view character to the original index it came from
+    let out = ""
+    const map = []
+    for (let i = 0; i < text.length; i++) {
+      if (text[i] === "\n" && columns.has(i)) {
+        out += " "
+        map.push(i)
+        continue
+      }
+      out += text[i]
+      map.push(i)
+    }
+    return { s: out, map }
+  }
+  const chars = []
+  const map = []
+  let i = 0
+  for (const ch of text) {
+    if (ZWSP.test(ch)) {
+      // folded out, but its slot stays as a break, so "i\u200Bgnore" is two
+      // words to the scanner, not one
+      chars.push("\u0000")
+      map.push(i)
+      i += ch.length
+      continue
+    }
+    const cp = ch.codePointAt(0)
+    const folded = cp > 0x7f ? (HOMOGLYPHS[ch] !== undefined ? HOMOGLYPHS[ch] : ch.normalize("NFKC")) : ch
+    if (folded === ch) {
+      chars.push(ch)
+      map.push(i)
+      i += ch.length
+      continue
+    }
+    for (const f of folded) {
+      chars.push(f)
+      map.push(i)
+    }
+    i += ch.length
+  }
+  let s = ""
+  const idx = []
+  for (let k = 0; k < chars.length; k++) {
+    if (chars[k] === "\u0000") continue
+    s += chars[k]
+    idx.push(map[k])
+  }
+  if (columns) {
+    // every newline that sits between two words of the column becomes a
+    // space in the view: "IGNORE\nALL\n..." is one phrase to the rules,
+    // while the mask takes the whole block out of the original
+    let out = ""
+    const jmap = []
+    for (let k = 0; k < s.length; k++) {
+      if (s[k] === "\n" && idx[k] >= 0 && columns.has(idx[k])) {
+        out += " "
+        jmap.push(idx[k])
+        continue
+      }
+      out += s[k]
+      jmap.push(idx[k])
+    }
+    return { s: out, map: jmap }
+  }
+  return { s, map: idx }
+}
+
+// wordColumns: does this text read as a word column — at least three lines,
+// every line one bare word — and if so, which newlines join words? It
+// returns the original indexes of the newlines that become spaces, or null.
+// Prose survives untouched, because its lines carry phrases; a column of
+// single words joined by newlines is how "IGNORE ALL PREVIOUS INSTRUCTIONS"
+// is smuggled past a line-anchored rule, and the words it is made of are the
+// attack whatever the formatting says.
+function wordColumns(text) {
+  const bare = []
+  const nlAt = []
+  let start = 0
+  for (let k = 0; k < text.length; k++) {
+    if (text[k] === "\n") {
+      nlAt.push(k)
+      bare.push(isBareWordLine(text, start, k))
+      start = k + 1
+    }
+  }
+  bare.push(isBareWordLine(text, start, text.length))
+  if (bare.length < 3) return null
+  let words = 0
+  for (const b of bare) if (b) words++
+  if (words !== bare.length) return null
+  const join = new Set()
+  for (let k = 0; k < nlAt.length; k++) {
+    if (bare[k] && bare[k + 1]) join.add(nlAt[k])
+  }
+  return join.size ? join : null
+}
+
+// isBareWordLine: the line carries one word of letters and nothing else —
+// whitespace around it is allowed, any other character is not
+function isBareWordLine(text, from, to) {
+  let saw = false
+  for (let k = from; k < to; k++) {
+    const c = text[k]
+    if (c === " " || c === "\t" || c === "\r") continue
+    if ((c >= "a" && c <= "z") || (c >= "A" && c <= "Z")) {
+      saw = true
+      continue
+    }
+    return false
+  }
+  return saw
+}
+
+// maskAt rewrites the original: the span a match covered in the normalized
+// view becomes the mask, the map carrying each normalized index back to the
+// index of the character it was folded from. Off the end of the map means
+// off the end of the text.
+function maskAt(text, map, from, to, mask) {
+  if (!map) return text.slice(0, from) + mask + text.slice(to)
+  const start = from < map.length ? map[from] : text.length
+  const end = to <= 0 ? 0 : to > map.length ? text.length : map[to - 1] + 1
+  return text.slice(0, start) + mask + text.slice(end)
 }
 
 // ---------------------------------------------------------------------------
