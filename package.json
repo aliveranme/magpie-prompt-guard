@@ -1,6 +1,6 @@
 {
   "name": "magpie-prompt-guard",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Filters the prompts magpie's gateway sends: keeps injection phrases out of a request, and takes the refusal-making safety boilerplate out of an agent's own system prompt",
   "type": "module",
   "files": ["prompt-guard.middleware.js", "page", "README.md"],
@@ -9,12 +9,14 @@
   "scripts": {
     "test": "bun test",
     "build": "node scripts/sync-engine.mjs && node scripts/make-samples.mjs",
+    "icon": "node scripts/sync-icon.mjs",
     "extract": "node scripts/extract-guardrails.mjs",
     "check": "node scripts/extract-guardrails.mjs --check",
     "smoke": "node scripts/page-smoke.mjs",
     "load": "node scripts/load-check.mjs"
   },
   "magpie": {
+    "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPCEtLSBtYWdwaWUtcHJvbXB0LWd1YXJkOiBhIHJlcXVlc3QgaXMgcmVhZCBiZWZvcmUgaXQgaXMgc2VudC4gSW5kaWdvIHRpbGUsCiAgICAgICB3aGl0ZSBmdW5uZWwg4oCUIHRoZSBzYW1lIHNoYXBlIHRoZSBwYWdlJ3MgaWNvbiBoYXMgY2FycmllZCwgYW5kIHRoZQogICAgICAgcGx1Z2luJ3MgYG1hZ3BpZS5pY29uYCBpbiBwYWNrYWdlLmpzb24gaXMgdGhpcyBmaWxlIGFzIGEgZGF0YSBVUkkKICAgICAgICh3cml0dGVuIGJ5IHNjcmlwdHMvc3luYy1pY29uLm1qcykuIEV2ZXJ5dGhpbmcgcGFzc2VzIHRocm91Z2ggdGhlCiAgICAgICBmdW5uZWw7IHdoYXQgdGhlIHJ1bGVzIG5hbWUgZG9lcyBub3QuIEZsYXQgc2hhcGVzIG9ubHksIGFuZCBubwogICAgICAgY3VycmVudENvbG9yOiB0aGlzIGlzIGRyYXduIGluc2lkZSBhbiA8aW1nPiwgd2hlcmUgdGhlIHBhZ2UncyBvd24gaW5rCiAgICAgICBjYW5ub3QgcmVhY2ggaXQuIFRoZSBmdW5uZWwgY2FycmllcyByZWNvZ25pdGlvbiBkb3duIHRvIDE2IHB4LiAtLT4KICA8cmVjdCB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHJ4PSIxNSIgZmlsbD0iIzRmNDZlNSIvPgogIDxwYXRoIGQ9Ik0xMiAxNEg1MkwzOCAzNVY1MEwzMiA1OEwyNiA1MFYzNVoiIGZpbGw9IiNmZmZmZmYiLz4KPC9zdmc+Cg==",
     "middleware": "./prompt-guard.middleware.js",
     "page": {
       "title": "Prompt guard",

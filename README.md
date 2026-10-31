@@ -46,7 +46,7 @@ is in the sidebar's Plugins group.
 | Where | What it uses |
 |---|---|
 | The request | `magpie.middleware` → `prompt-guard.middleware.js`, one `onRequest(body, ctx)` hook on every request an agent sends, in the agent's own API: Anthropic Messages, OpenAI Chat Completions, OpenAI Responses and Gemini. `ctx.protocol`, `ctx.agent`, `ctx.model` and `ctx.options` come with it. |
-| The window | `magpie.page` → `page/index.html`, a sandboxed frame that talks to the window only through `_magpie/bridge.js`: `magpie.ready`, `magpie.options.get/set`, `magpie.theme`/`onTheme`. |
+| The window | `magpie.page` → `page/index.html`, a sandboxed frame that talks to the window only through `_magpie/bridge.js`: `magpie.ready`, `magpie.options.get/set`, `magpie.theme`/`onTheme`. Its tab, and the plugin's own card, carry one picture — the funnel in `page/icon.svg`; `package.json`'s `magpie.icon` is that file as a data URI, since magpie takes no icon paths there (`bun run icon` writes it). |
 | The settings | The plugin's own `options` in `plugins.json`. The page writes them; magpie takes a save at most once a second and the gateway picks the change up within about a second, with no restart. |
 | The words | The page is translated by itself from `magpie.theme.lang` (English and 简体中文). |
 | The presets | Each one is the guardrail-bearing text of the agent's own prompt, captured from this machine by `scripts/extract-guardrails.mjs` and built into `page/samples.js` by `scripts/make-samples.mjs`. |
@@ -481,6 +481,7 @@ prompt-guard [claude]: injection ignore previous instructions in user ("ignore a
 ```sh
 bun test                          # 95 cases and the editor's own, on both engines
 bun run build                     # regenerate page/engine.js and page/samples.js
+bun run icon                      # write package.json's magpie.icon from page/icon.svg
 bun run extract                   # capture every form of the agents' prompts into reference/
 bun run check                     # hold the packs to every captured form
 npm run smoke                     # drive the page in a real browser
@@ -504,9 +505,12 @@ page/samples.js              generated — the presets' excerpts
 page/view.js                 the editor's logic, without the DOM
 page/app.js                  the editor: magpie's switch, strip and menu
 page/index.html  style.css   the page, drawn from the theme's tokens
-page/icon.svg                the tab's picture
+page/icon.svg                the page tab's picture, and the plugin's own
+                             (package.json's magpie.icon is this file as a
+                             data URI, written by scripts/sync-icon.mjs)
 scripts/middleware.mjs       runs a case the way the gateway calls it
 scripts/sync-engine.mjs      writes page/engine.js
+scripts/sync-icon.mjs        writes package.json's magpie.icon from the page's
 scripts/extract-guardrails.mjs  captures a prompt from the agent itself
 scripts/make-samples.mjs     writes page/samples.js from the capture
 scripts/page-smoke.mjs       a developer's check in a real browser
@@ -594,6 +598,10 @@ magpie plugin add ./magpie-prompt-guard
   绕过。它的用途是把点名的文本和点名的句式挡在模型之外，而不是单独拦住处心积虑的提示词。
 - **剔除围栏会改变模型行为**：这就是它的目的，但也可能删掉你想保留的指令。
   建议先用试验台跑一遍真实的系统提示词，该保的写进 `keep`。
+- **图标只有一张**：侧边栏里插件页的标签、以及插件卡片上那枚图标，都是 `page/icon.svg`
+  这个漏斗。magpie 的 `magpie.icon` 只认 https URL 或 `data:image`，不认图标路径，
+  所以 `package.json` 里放的是同一文件的 data URI —— `bun run icon` 负责写入，
+  测试会盯着两者不许走样。
 
 ### 关于两个 Claude 预设的出处
 
@@ -647,6 +655,7 @@ node scripts/extract-guardrails.mjs --check  # 用抓取结果校验规则包
 ```sh
 bun test                    # 95 条用例 + 编辑器逻辑，双引擎各跑一遍
 bun run build               # 重新生成 page/engine.js 与 page/samples.js
+bun run icon                # 用 page/icon.svg 写 package.json 的 magpie.icon
 bun run extract             # 抓取 agent 两种形态的真实系统提示词到 reference/
 bun run check               # 用抓取结果校验每一个形态
 npm run smoke               # 真实浏览器里驱动页面

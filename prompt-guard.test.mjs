@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url"
 import * as mod from "./prompt-guard.middleware.js"
 import { loadCases, runHook, loadPageEngine } from "./scripts/middleware.mjs"
 import { rendered, enginePath } from "./scripts/sync-engine.mjs"
+import { withIcon } from "./scripts/sync-icon.mjs"
 
 const here = import.meta.dir ?? dirname(fileURLToPath(import.meta.url))
 const cases = loadCases(join(here, "cases.json"))
@@ -19,6 +20,22 @@ const page = loadPageEngine(enginePath())
 
 test("page/engine.js is what the middleware says it is — run `bun run build`", () => {
   expect(readFileSync(enginePath(), "utf8")).toBe(rendered())
+})
+
+test("the plugin's icon is the page's icon — run `bun run icon`", () => {
+  const pkgText = readFileSync(join(here, "package.json"), "utf8")
+  expect(pkgText).toBe(withIcon())
+  const pkg = JSON.parse(pkgText)
+  // magpie carries a plugin's own picture from package.json's magpie.icon,
+  // and takes only an https URL or a data:image URI there
+  expect(pkg.magpie.icon.startsWith("data:image/")).toBe(true)
+  const svg = Buffer.from(pkg.magpie.icon.replace(/^data:[^,]*,/, ""), "base64").toString("utf8")
+  expect(svg.trim()).toBe(readFileSync(join(here, "page", "icon.svg"), "utf8").trim())
+  // it is drawn inside an <img> in the window: currentColor would come out
+  // black in both themes, so the picture carries its own ink — what it says
+  // about itself in a comment is not paint
+  expect(/currentColor/.test(svg.replace(/<!--[\s\S]*?-->/g, ""))).toBe(false)
+  expect(pkg.magpie.page.icon).toBe("page/icon.svg")
 })
 
 for (const c of cases) {

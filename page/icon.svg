@@ -1,1 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2.4 3.1h11.2L9.3 8.4v4.2l-2.6 1.4V8.4z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- magpie-prompt-guard: a request is read before it is sent. Indigo tile,
+       white funnel — the same shape the page's icon has carried, and the
+       plugin's `magpie.icon` in package.json is this file as a data URI
+       (written by scripts/sync-icon.mjs). Everything passes through the
+       funnel; what the rules name does not. Flat shapes only, and no
+       currentColor: this is drawn inside an <img>, where the page's own ink
+       cannot reach it. The funnel carries recognition down to 16 px. -->
+  <rect width="64" height="64" rx="15" fill="#4f46e5"/>
+  <path d="M12 14H52L38 35V50L32 58L26 50V35Z" fill="#ffffff"/>
+</svg>
