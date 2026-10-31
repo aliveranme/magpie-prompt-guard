@@ -34,12 +34,14 @@
       budgetTrace: "Log what each request cost",
       budgetTraceHint: "one line per request in magpie's log — turn the switch on, then",
       budgetWhy: "These are the settings. The numbers a reader wants — what was read, how long it took, what went unread — are in magpie's log, which is what the switch above is for.",
-      benchStats: "Size", benchWithin: "within the single-text cap", benchOver: "over the single-text cap: the gateway would not read this at all",
+      benchStats: "Size", benchWithin: "within the single-text cap", benchOver: "over the single-text cap: the gateway skips this text",
       benchEstimate: "about {ms} ms to read, at the {rate} ms/KB measured in magpie's own engine",
       benchMode: "What to try", benchModeText: "One text", benchModeRequest: "A whole request",
       benchProtocol: "Protocol", benchRequestHint: "a request body, as the agent sends it",
-      benchRead: "read", benchSkipped: "left unread", benchBadJson: "that is not a JSON object",
-      benchWould: "the request as it would be sent",
+      benchRead: "within text-size caps", benchSkipped: "over the per-text cap", benchBadJson: "that is not a JSON object",
+      benchWould: "preview under the text-size cap",
+      benchTimeHint: "This preview does not simulate maxMs. The live hook may stop earlier; check its per-request report for the actual result.",
+      benchNotRead: "This text exceeds its size cap. The gateway skips it, so no transformed preview is shown.",
       presetMissed: "never fired on the capture:", presetExcerpt: "the excerpt it was extracted from", presetLeft: "what would be sent",
       presetCaveat: "The share is of this excerpt, which is the guardrail-bearing part of the prompt and not all of it; on the whole prompt it is a few percent. A preset only sets the guardrails' packs, unit and scopes — your keep list and your own rules are left as they are.",
       injLede: "What each kind of turn is read for. What a rule matches is replaced by the mask, written to the log, or turned away with an error — before the request is routed.",
@@ -61,7 +63,7 @@
       unitSentence: "Sentence", unitLine: "Line", unitBlock: "Paragraph",
       keep: "Never remove", keepHint: "one expression a line; what it matches stays",
       grScopes: "Reads",
-      benchLede: "Paste a prompt and see what the rules do to it. This runs in the page on the same engine the gateway runs, so it answers as the gateway would — nothing here reaches the network.",
+      benchLede: "Paste text or a request to see which rules match. The preview enforces per-text size caps but cannot simulate magpie's wall-clock maxMs; live filtering may stop earlier. Nothing here reaches the network.",
       benchRole: "Read as", benchIn: "Text", benchOut: "After the rules", benchHits: "What fired",
       benchNothing: "Nothing fired.", benchPlaceholder: "Paste a system prompt or a user turn…",
       benchRemoved: "Removed", benchReplaced: "Replaced",
@@ -88,12 +90,14 @@
       budgetTrace: "在日志里记录每个请求的开销",
       budgetTraceHint: "每个请求一行，写进 magpie 日志 —— 打开开关后运行",
       budgetWhy: "这里是设置。真正想要的数字 —— 读了多少、花多久、跳过多少 —— 在 magpie 日志里，上面那个开关就是为它准备的。",
-      benchStats: "体积", benchWithin: "在单文本上限内", benchOver: "超过单文本上限：网关会整段跳过，完全不看",
+      benchStats: "体积", benchWithin: "未超单文本上限", benchOver: "超过单文本上限：网关会跳过这段文本",
       benchEstimate: "预计读取约 {ms} ms（按 magpie 引擎实测 {rate} ms/KB）",
       benchMode: "试什么", benchModeText: "单条文本", benchModeRequest: "整个请求",
       benchProtocol: "协议", benchRequestHint: "请求体，就是 agent 发出去的那个",
-      benchRead: "读取", benchSkipped: "跳过未读", benchBadJson: "不是合法的 JSON 对象",
-      benchWould: "实际会发出的请求",
+      benchRead: "未超单文本上限", benchSkipped: "超过单文本上限", benchBadJson: "不是合法的 JSON 对象",
+      benchWould: "按文本上限生成的预览",
+      benchTimeHint: "此预览不模拟 maxMs；实际钩子可能更早停止。实际结果请查看每请求日志。",
+      benchNotRead: "该文本超过大小上限。网关会跳过它，因此不显示改写预览。",
       presetHits: "处命中", presetChars: "字符",
       presetMissed: "在真实抓取中未命中：", presetExcerpt: "提取所用的片段", presetLeft: "处理后实际发出的内容",
       presetCaveat: "这里的比例是相对本片段而言的——片段只截取了提示词中带围栏的那部分，对完整提示词只有几个百分点。应用预设只会写入围栏的规则包、单元和范围，你的 keep 白名单与自建规则不会被改动。",
@@ -116,7 +120,7 @@
       unitSentence: "整句", unitLine: "整行", unitBlock: "整段",
       keep: "永不剔除", keepHint: "每行一条正则，命中的内容一定保留",
       grScopes: "读取范围",
-      benchLede: "粘贴一段提示词，直接看规则会怎么处理。这里跑的是与网关同一份引擎，结果与真正发出的内容一致——页面不联网。",
+      benchLede: "粘贴文本或请求体，查看哪些规则会命中。预览会执行各文本大小上限，但无法模拟 magpie 的墙钟 maxMs；实际过滤可能更早停止。页面不会联网。",
       benchRole: "按以下身份解读", benchIn: "原文", benchOut: "处理后", benchHits: "命中的规则",
       benchNothing: "没有命中任何规则。", benchPlaceholder: "粘贴系统提示词或用户消息…",
       benchRemoved: "已剔除", benchReplaced: "已替换",
@@ -249,15 +253,17 @@
     return state
   }
 
-  // benchSize is a text against the cap: how big it is, whether the gateway
-  // would read it at all, and roughly what reading it costs
-  function benchSize(E, state, text) {
+  // benchSize is a text against its role's cap and an estimate of reading cost.
+  function benchSize(E, state, text, role) {
     const l = limits(E, state)
     const chars = typeof text === "string" ? text.length : 0
+    const maxText = role === "system"
+      ? l.maxSystemText || Math.max(l.maxText, 262144)
+      : l.maxText
     return {
       chars,
-      over: chars > l.maxText,
-      maxText: l.maxText,
+      over: chars > maxText,
+      maxText,
       // never "0 ms": the per-KB rate is the reading, and a call has
       // overhead besides, so a tiny text is still about a millisecond
       ms: Math.max(1, Math.round((chars / 1024) * MOEJS_MS_PER_KB)),
@@ -265,10 +271,8 @@
     }
   }
 
-  // benchRequest works a whole request the way the hook does, budget and all:
-  // what it read, what it left, and the body that would be sent. The half of
-  // the budget that needs a clock cannot be worked out here — that is the
-  // trace option's job — but a text over maxText can be, and is.
+  // benchRequest previews the same rules and size cap as the hook. The
+  // runtime-dependent maxMs cutoff is reported by the live hook instead.
   function benchRequest(E, state, json, protocol) {
     let body
     try {
@@ -278,7 +282,7 @@
     }
     if (!body || typeof body !== "object" || Array.isArray(body)) return { ok: false, error: "not an object" }
     const r = E.previewRequest(body, protocol, state && typeof state === "object" ? state : {})
-    return { ok: true, body: r.body, hits: r.hits, read: r.read, skipped: r.skipped, limits: r.limits }
+    return { ok: true, body: r.body, hits: r.hits, read: r.read, skipped: r.skipped, limits: r.limits, timeBudgetApplied: r.timeBudgetApplied }
   }
 
   // keepList is the expressions that protect a clause: the owner's when they

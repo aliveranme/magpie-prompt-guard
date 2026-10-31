@@ -368,10 +368,12 @@ it:
 
 - **One text** mode: the size of what you pasted, whether the gateway would
   read it at all, and roughly what reading it costs.
-- **A whole request** mode: paste a request body (and pick its protocol) and
-  the page runs the same two passes the hook runs, with the same budget, and
-  says **what it would read and what it would leave** — the one part of a
-  request nothing else can show you before it is sent.
+- **A whole request** mode: paste a request body (and pick its protocol); the
+  page applies the same matching rules and per-text limits (`maxText` and
+  `maxSystemText`), then shows an upper-bound preview and estimated cost. It
+  cannot reproduce magpie's runtime-dependent `maxMs` cutoff, so the live
+  hook may stop earlier; check `ctx.state.promptGuard.skipped` and `trace` for
+  what actually ran.
 
 What a page cannot do is read the gateway's own counters: a plugin page is a
 frame sandboxed to scripts, with no origin of its own and no way in. That is
@@ -543,10 +545,10 @@ magpie plugin add ./magpie-prompt-guard
 - **用 `trace` 看真实开销**：`magpie plugin options prompt-guard '{"trace":true}'`，
   magpie 日志里会多出一行每请求的「读了多少字符 / 花了多少毫秒 / 命中几条」。
   页面 **Guardrails → 读取预算** 里有这两个数字和这个开关（可直接改、直接存）；
-  试验台的「整个请求」模式会贴一份请求体进去，用**同一套预算**跑一遍，告诉你
-  **会读多少、会跳过多少** —— 这是请求发出去之前唯一能看到这件事的地方。
-  需要说明的是：插件页是沙箱 iframe，**读不到网关自己的计数**，所以页面上那个
-  「预计耗时」是按真机实测的 ~0.93 ms/KB 推算的，真实数字只在 magpie 日志里。
+  试验台的「整个请求」模式会用同一套规则和各文本大小上限（`maxText`、`maxSystemText`）生成**上界预览**，
+  并估算耗时。页面无法复现 magpie 运行时的 `maxMs` 截止点，因此实际钩子可能更早停止；请用
+  `ctx.state.promptGuard.skipped` 和 `trace` 查看真实读取结果。插件页是沙箱 iframe，读不到网关计数；
+  耗时估算基于真机实测值，真实数字只在 magpie 日志里。
 - **它不是安全分类器**：是字面与正则匹配，近义词、改写、拼写变体、被格式拆开的词都能
   绕过。它的用途是把点名的文本和点名的句式挡在模型之外，而不是单独拦住处心积虑的提示词。
 - **剔除围栏会改变模型行为**：这就是它的目的，但也可能删掉你想保留的指令。

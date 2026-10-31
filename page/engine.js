@@ -912,10 +912,11 @@ function compileAll(list) {
 function scanText(text, plan) {
   const hits = []
   if (typeof text !== "string" || !text) return { out: text, hits, reject: null }
-  let out = text
-  if (/[\u200B-\u200D\u200E\u200F\uFEFF]/.test(out)) {
-    out = out.replace(/[\u200B-\u200D\u200E\u200F\uFEFF]/g, "")
+  let normalized = text
+  if (/[\u200B-\u200D\u200E\u200F\uFEFF]/.test(normalized)) {
+    normalized = normalized.replace(/[\u200B-\u200D\u200E\u200F\uFEFF]/g, "")
   }
+  let out = normalized
   let reject = null
   for (const rule of plan.rules) {
     const a = rule.action
@@ -932,7 +933,7 @@ function scanText(text, plan) {
       })
       continue
     }
-    for (const m of find(rule.re, text)) {
+    for (const m of find(rule.re, normalized)) {
       const hit = hitOf(rule, m)
       if (hits.length < 200) hits.push(hit)
       if (a === "reject" && !reject) reject = hit
@@ -978,16 +979,22 @@ function pruneText(text, g) {
   for (const p of paragraphs) {
     const heading = firstHeading(p.body)
     if (skipping) {
-      if (!heading) continue
+      if (!heading) {
+        const kept = keptSentences(p.body, g)
+        if (kept) out += kept + p.sep
+        continue
+      }
       skipping = false
     }
     if (!p.body.trim()) {
       out += p.sep
       continue
     }
-    // a heading a block rule matched goes, and — with sections on, as it is
-    // by default — everything under it up to the next heading goes with it
+    // A matched heading removes its section, while keep-protected sentences
+    // survive at sentence granularity.
     if (heading && blockHit(p.body, g, hits)) {
+      const kept = keptSentences(p.body, g)
+      if (kept) out += kept + p.sep
       if (g.sections) skipping = true
       continue
     }
@@ -1014,6 +1021,20 @@ function blockHit(paragraph, g, hits) {
     }
   }
   return found
+}
+// keptSentences retains only the sentence-sized units protected by keep when
+// a matched heading removes the rest of its section.
+function keptSentences(text, g) {
+  let out = ""
+  for (const line of splitKeep(text, SEC_LINE)) {
+    if (!line.body.trim()) continue
+    let kept = ""
+    for (const part of splitSentences(line.body)) {
+      if (part.body.trim() && protectedUnit(part.body, g)) kept += part.body + part.sep
+    }
+    if (kept) out += kept + line.sep
+  }
+  return out
 }
 
 // pruneParagraph takes the lines and sentences out of one paragraph. What a
@@ -1052,6 +1073,7 @@ function lineHit(line, g, hits) {
 function pruneSentences(line, g, hits) {
   const parts = splitSentences(line)
   if (parts.length < 2) {
+    if (protectedUnit(line, g)) return line
     if (sentenceHit(line, g, hits)) return ""
     return line
   }
@@ -1253,7 +1275,7 @@ function walkResponses(body, visit) {
   }
 }
 
-// walkGemini covers the Gemini API: systemInstruction, and contents[]
+// walkGemini covers systemInstruction, contents[] and structured function responses.
 function walkGemini(body, visit) {
   const key = body.systemInstruction !== undefined ? "systemInstruction"
     : body.system_instruction !== undefined ? "system_instruction" : null
@@ -1267,7 +1289,14 @@ function walkGemini(body, visit) {
     if (!m || typeof m !== "object" || !Array.isArray(m.parts)) continue
     const role = m.role === "model" ? "assistant" : m.role === undefined || m.role === "user" ? "user" : null
     if (!role) continue
-    blocks(role, m.parts, visit)
+    for (const p of m.parts) {
+      const result = p && typeof p === "object" ? p.functionResponse : null
+      if (result && typeof result === "object" && "response" in result) {
+        walkTextValues("tool", result, "response", visit)
+      } else {
+        block(role, m.parts, p, visit)
+      }
+    }
   }
 }
 
@@ -1289,19 +1318,40 @@ function field(role, holder, key, visit) {
   if (Array.isArray(v)) blocks(role, v, visit)
 }
 
-// blocks visits the text of each block: a `text` (Anthropic, Gemini), an
-// `input_text` or `output_text` (Responses) part, and nothing else — tool
-// use, tool results, images and a Gemini thought part are left alone. A
-// block is noted so that one a removal empties can be taken out afterwards.
+// blocks visits nonempty text parts in Anthropic, Gemini and Responses bodies.
+// List-backed blocks are queued for cleanup if a rule empties them; structured
+// Gemini function responses are traversed separately.
 function blocks(role, list, visit) {
-  for (const p of list) {
-    if (!p || typeof p !== "object") continue
-    if (p.thought) continue
-    if (typeof p.text !== "string") continue
-    const t = p.type
-    if (t === "text" || t === "input_text" || t === "output_text" || t === undefined) {
-      visit(role, () => p.text, (s) => { p.text = s })
-      if (sink) sink.push({ list, block: p })
+  for (const p of list) block(role, list, p, visit)
+}
+
+function block(role, list, p, visit) {
+  if (!p || typeof p !== "object" || p.thought || typeof p.text !== "string" || !p.text) return
+  const t = p.type
+  if (t === "text" || t === "input_text" || t === "output_text" || t === undefined) {
+    visit(role, () => p.text, (s) => { p.text = s })
+    if (sink) sink.push({ list, block: p })
+  }
+}
+
+// walkTextValues visits string leaves under a tool response, preserving its
+// shape while leaving function names and arguments unread.
+function walkTextValues(role, holder, key, visit) {
+  const holders = [holder]
+  const keys = [key]
+  while (holders.length) {
+    const parent = holders.pop()
+    const field = keys.pop()
+    const value = parent[field]
+    if (typeof value === "string") {
+      if (value) visit(role, () => parent[field], (s) => { parent[field] = s })
+      continue
+    }
+    if (!value || typeof value !== "object") continue
+    const children = Object.keys(value)
+    for (let i = children.length - 1; i >= 0; i--) {
+      holders.push(value)
+      keys.push(children[i])
     }
   }
 }
@@ -1382,8 +1432,8 @@ function previewText(text, options_, role) {
   return scanText(text, plan)
 }
 
-// previewRequest works a whole request, and says what came of it, without
-// rejecting anything: what the page's test bench and the tests look at.
+// previewRequest applies the matching rules and deterministic text-size caps
+// without rejecting the body or simulating the runtime-dependent maxMs cutoff.
 function previewRequest(body, protocol, options_) {
   const o = options_ && typeof options_ === "object" ? options_ : {}
   const copy = JSON.parse(JSON.stringify(body === undefined || body === null ? {} : body))
@@ -1392,9 +1442,8 @@ function previewRequest(body, protocol, options_) {
   sink = []
   walk(copy, protocol, (role, get, set) => parts.push({ role, get, set }))
 
-  // the same two passes the hook runs, so that what the page shows a reader
-  // is what the gateway would do — with the one part of the budget that can
-  // be worked out without a clock: a text over maxText is not read
+  // The preview applies the deterministic text-size cap. Its wall-clock cap
+  // depends on magpie's runtime and is reported by the live hook instead.
   const limits = limitsOf(o)
   const read = { n: 0 }
   const g = guardPlan(o.guardrails)
@@ -1434,7 +1483,7 @@ function previewRequest(body, protocol, options_) {
     }
   }
   emptyBlocks()
-  return { body: copy, hits: seen, limits, read: read.n, skipped: seen.skipped || 0 }
+  return { body: copy, hits: seen, limits, read: read.n, skipped: seen.skipped || 0, timeBudgetApplied: false }
 }
 globalThis.PromptGuard = { onRequest, limitsOf, INJECTION_PACKS, GUARDRAIL_PACKS, PACKS_OFF, DEFAULT_KEEP, rulesFor, previewText, previewRequest }
 })()

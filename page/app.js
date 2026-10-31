@@ -579,6 +579,7 @@
         line.append(el("span", "", " " + t.benchRead + (r.skipped ? " · " + n(r.skipped) + " " + t.benchSkipped : "")))
         stats.append(line)
         stats.append(el("p", "hint", t.benchEstimate.replace("{ms}", String(Math.round((r.read / 1024) * V.MOEJS_MS_PER_KB))).replace("{rate}", String(V.MOEJS_MS_PER_KB))))
+        if (r.timeBudgetApplied === false) stats.append(el("p", "hint", t.benchTimeHint))
       }
       const hits = (r.hits.guardrails || []).concat(r.hits.injection || [])
       const head = el("div", "sec-h")
@@ -593,13 +594,17 @@
     }
 
     // one text, as the role it is given
-    const size = V.benchSize(E, state, area.value)
+    const size = V.benchSize(E, state, area.value, role)
     if (stats) {
       const line = el("p", "stat" + (size.over ? " bad" : ""))
       line.append(el("b", "", n(size.chars)))
       line.append(el("span", "", " " + (zh ? "字符" : "chars") + " · " + (size.over ? t.benchOver + " (" + n(size.maxText) + ")" : t.benchWithin)))
       stats.append(line)
       if (!size.over) stats.append(el("p", "hint", t.benchEstimate.replace("{ms}", String(size.ms)).replace("{rate}", String(size.rate))))
+    }
+    if (size.over) {
+      out.append(el("div", "note bad", t.benchNotRead))
+      return
     }
     const r = V.bench(E, state, area.value, role)
     const head = el("div", "sec-h")
